@@ -505,6 +505,94 @@ document.addEventListener('DOMContentLoaded', () => {
     }, duration);
   };
 
+  const syncWithAdminDB = () => {
+    try {
+      const db = JSON.parse(localStorage.getItem('awladAdminDB'));
+      if (!db) {
+        renderProducts([]);
+        return;
+      }
+
+      // 1. Hero sync
+      if (db.hero) {
+        const prefix = document.querySelector('.brand-prefix');
+        const mainHighlight = document.querySelector('.brand-main-highlight');
+        const suffix = document.querySelector('.brand-suffix');
+        const desc = document.querySelector('.hero-description');
+        const img = document.querySelector('.hero-img');
+        
+        if (prefix && db.hero.prefix) prefix.textContent = db.hero.prefix;
+        if (mainHighlight && db.hero.mainTitle) mainHighlight.textContent = db.hero.mainTitle;
+        if (suffix && db.hero.suffix) suffix.textContent = db.hero.suffix;
+        if (desc && db.hero.subtext) desc.textContent = db.hero.subtext;
+        
+        const heroBtns = document.querySelectorAll('.hero-cta-group .btn');
+        if (heroBtns[0] && db.hero.cta1) heroBtns[0].textContent = db.hero.cta1;
+        if (heroBtns[1] && db.hero.cta2) heroBtns[1].textContent = db.hero.cta2;
+        if (img && db.hero.img) img.src = db.hero.img;
+      }
+
+      // 2. Announcement sync
+      if (db.announcement && db.announcement.active) {
+        let annBar = document.getElementById('topAnnouncementBar');
+        if (!annBar) {
+           annBar = document.createElement('div');
+           annBar.id = 'topAnnouncementBar';
+           annBar.style.padding = '0.5rem';
+           annBar.style.textAlign = 'center';
+           annBar.style.fontSize = '0.95rem';
+           annBar.style.fontWeight = 'bold';
+           annBar.style.zIndex = '9999';
+           annBar.style.position = 'relative';
+           document.body.insertBefore(annBar, document.body.firstChild);
+        }
+        annBar.textContent = db.announcement.text || '';
+        annBar.style.backgroundColor = db.announcement.bgColor || '#2C3E50';
+        annBar.style.color = db.announcement.textColor || '#FFFFFF';
+      } else {
+        const annBar = document.getElementById('topAnnouncementBar');
+        if (annBar) annBar.remove();
+      }
+
+      // 3. Contact & CMS Sync
+      if (db.contact) {
+         const waLinks = document.querySelectorAll('a[href^="https://wa.me"]');
+         waLinks.forEach(link => {
+             if (db.contact.whatsapp) {
+                const text = encodeURIComponent('مرحبا، أنا مهتم بمنتج من معرض أولاد القاضي');
+                link.href = `https://wa.me/2${db.contact.whatsapp}?text=${text}`;
+             }
+         });
+      }
+
+      if (db.platform) {
+         if (db.platform.logo) {
+            const logos = document.querySelectorAll('.brand-logo-img, .footer-logo img');
+            logos.forEach(logo => logo.src = db.platform.logo);
+         }
+         if (db.platform.brandName) {
+            document.title = db.platform.brandName;
+         }
+      }
+
+      if (db.cms) {
+         const footerStoreName = document.querySelector('.footer-logo-title');
+         if (footerStoreName && db.cms.storeName) footerStoreName.textContent = db.cms.storeName;
+      }
+
+      // 4. Products Sync
+      if (db.products && Array.isArray(db.products)) {
+        renderProducts(db.products);
+      } else {
+        renderProducts([]);
+      }
+
+    } catch (error) {
+      console.error('Error syncing with awladAdminDB:', error);
+      renderProducts([]); 
+    }
+  };
+
   /* ==========================================================================
      10. INIT
      ========================================================================== */
@@ -512,7 +600,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNavbarControls();
   populateGovernorates();
   renderReviews();
-  renderProducts([]); // ← صفحة نظيفة — تستقبل الداتا من Admin Dashboard / API
+  syncWithAdminDB(); // ← Syncs everything from Admin Dashboard instead of empty array
   initProductFilters();
   initModalEvents();
 
