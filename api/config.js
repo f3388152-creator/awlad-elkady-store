@@ -5,6 +5,8 @@ module.exports = (req, res) => {
   res.status(200).json({
     supabaseUrl: process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
-    bostaApiKeyConfigured: Boolean(process.env.BOSTA_API_KEY)
+    bostaApiKeyConfigured: Boolean(process.env.BOSTA_API_KEY),
+    bostaCreateLabelUrl: process.env.BOSTA_CREATE_LABEL_URL || '',
+    supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET || 'admin-media'
   });
 };

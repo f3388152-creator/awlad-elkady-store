@@ -6,6 +6,7 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   'use strict';
+  const API_BASE = '/api';
 
   /* ==========================================================================
      1. STATE & DATA
@@ -36,6 +37,15 @@ document.addEventListener('DOMContentLoaded', () => {
     { name: 'أسوان', shippingFee: 100 }
   ];
 
+  const SHIPPING_WEIGHT_FIELD_MAP = {
+    small_medium: 'size_small_medium',
+    l: 'size_l',
+    xl: 'size_xl',
+    xxl: 'size_xxl',
+    large: 'size_large',
+    huge: 'size_huge'
+  };
+
   /**
    * MOCK_PRODUCTS — يُستبدل بـ API call من لوحة التحكم
    * Categories: electrical | kitchen-tools | serving-sets | kitchen-extras
@@ -49,6 +59,95 @@ document.addEventListener('DOMContentLoaded', () => {
     imageSrc: '',
     quantity: 1,
     shippingFee: 50
+  };
+
+  const LANDING_CACHE = {
+    config: null,
+    products: [],
+    shippingRates: [],
+    reviews: [],
+    hero: null,
+    announcement: null,
+    cms: null,
+    contact: null,
+    platform: null,
+    hydrated: false
+  };
+
+  async function fetchLandingConfig() {
+    if (LANDING_CACHE.config) return LANDING_CACHE.config;
+
+    try {
+      const response = await fetch('/api/config');
+      const payload = await response.json();
+      LANDING_CACHE.config = payload;
+      return payload;
+    } catch (error) {
+      console.warn('Could not load landing config', error);
+      LANDING_CACHE.config = {};
+      return {};
+    }
+  }
+
+  async function supabaseSelect(table, select = '*') {
+    const config = await fetchLandingConfig();
+    const supabaseUrl = config.supabaseUrl || '';
+    const supabaseAnonKey = config.supabaseAnonKey || '';
+    if (!supabaseUrl || !supabaseAnonKey) return [];
+
+    const url = new URL(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/${table}`);
+    url.searchParams.set('select', select);
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Database select failed for ${table}`);
+    }
+
+    return response.json();
+  }
+
+  async function hydrateLandingData() {
+    if (LANDING_CACHE.hydrated) return LANDING_CACHE;
+
+    try {
+      const [products, settings, shippingRates] = await Promise.all([
+        supabaseSelect('products'),
+        supabaseSelect('site_settings'),
+        supabaseSelect('shipping_rates')
+      ]);
+
+      LANDING_CACHE.products = Array.isArray(products) ? products : [];
+      LANDING_CACHE.settings = Array.isArray(settings) ? (settings[0] || {}) : {};
+      LANDING_CACHE.shippingRates = Array.isArray(shippingRates) ? shippingRates : [];
+      LANDING_CACHE.siteSettings = LANDING_CACHE.settings;
+      LANDING_CACHE.hero = {
+        title: LANDING_CACHE.settings.hero_title || '',
+        subtitle: LANDING_CACHE.settings.hero_subtitle || '',
+        image_url: LANDING_CACHE.settings.hero_image_url || '',
+        contact_phone: LANDING_CACHE.settings.contact_phone || '',
+        contact_whatsapp: LANDING_CACHE.settings.contact_whatsapp || ''
+      };
+      LANDING_CACHE.reviews = [];
+      LANDING_CACHE.announcement = null;
+      LANDING_CACHE.contact = {
+        phone: LANDING_CACHE.settings.contact_phone || '',
+        whatsapp: LANDING_CACHE.settings.contact_whatsapp || ''
+      };
+      LANDING_CACHE.platform = null;
+
+      LANDING_CACHE.hydrated = true;
+    } catch (error) {
+      console.warn('Could not hydrate landing data from the database', error);
+      LANDING_CACHE.hydrated = true;
+    }
+
+    return LANDING_CACHE;
   };
 
   /* ==========================================================================
@@ -87,18 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
    * Pass an empty array [] to show the awaiting-API empty state.
    * @param {Array} products
    */
-  const getLandingReviews = () => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('awladAdminDB'));
-      if (saved && Array.isArray(saved.reviews) && saved.reviews.length) {
-        return saved.reviews;
-      }
-    } catch (error) {
-      console.warn('Could not read reviews from localStorage', error);
-    }
-
-    return [];
-  };
+  const getLandingReviews = () => Array.isArray(LANDING_CACHE.reviews) ? LANDING_CACHE.reviews : [];
 
   const renderReviews = () => {
     if (!reviewsSlider) return;
@@ -169,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const delayClass = `delay-${(index % 4) + 1}`;
       const imageMarkup = item.isSvg && item.svgContent
         ? item.svgContent
-        : `<img src="${item.image || 'assets/air-fryer.png'}" alt="${item.title}" class="product-image" loading="lazy">`;
+        : `<img src="${item.image_url || 'assets/air-fryer.png'}" alt="${item.title}" class="product-image" loading="lazy">`;
 
       const featuresMarkup = (item.features || [])
         .map(feat => `<li>${feat}</li>`)
@@ -178,11 +266,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const discountBadge = item.discount
         ? `<span class="badge badge-discount">خصم ${item.discount}%</span>`
         : '';
-      const originalPriceMarkup = item.originalPrice
-        ? `<span class="product-price-original">${item.originalPrice.toLocaleString('ar-EG')} ج.م</span>`
+      const originalPriceMarkup = item.original_price
+        ? `<span class="product-price-original">${item.original_price.toLocaleString('ar-EG')} ج.م</span>`
         : '';
-      const specLine = item.spec
-        ? `<p class="product-spec-line">${item.spec}</p>`
+      const specLine = item.description
+        ? `<p class="product-spec-line">${item.description}</p>`
         : '';
 
       return `
@@ -227,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
     reobserveScrollElements();
   };
 
-  // Global hooks — Admin Dashboard / API يستدعيها مباشرة
+  // Public hooks used by the admin dashboard and API
   window.renderProducts = renderProducts;
   window.updateProductsList = (newProducts) => renderProducts(newProducts);
   window.MOCK_PRODUCTS_CATALOG = MOCK_PRODUCTS;
@@ -303,24 +391,71 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ==========================================================================
      7. CHECKOUT MODAL
      ========================================================================== */
-  const populateGovernorates = () => {
+  function normalizeWeight(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (['small', 'sm', 'small_medium', 'medium', 's/m', 'small-medium'].includes(raw)) return 'small_medium';
+    if (raw === 'l') return 'l';
+    if (raw === 'xl') return 'xl';
+    if (raw === 'xxl') return 'xxl';
+    if (['large', 'big', 'kebira', 'كبيرة'].includes(raw)) return 'large';
+    if (['huge', 'massive', 'damha', 'ضخمة'].includes(raw)) return 'huge';
+    return 'small_medium';
+  }
+
+  function parseGovernorates(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    const raw = String(value).trim();
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.map((item) => String(item).trim()).filter(Boolean)
+        : [raw];
+    } catch {
+      return raw.split(/[,،\n]/).map((item) => String(item).trim()).filter(Boolean);
+    }
+  }
+
+  function findShippingRateForGovernorate(governorate) {
+    const target = String(governorate || '').trim().toLowerCase();
+    const rows = Array.isArray(LANDING_CACHE.shippingRates) ? LANDING_CACHE.shippingRates : [];
+    if (!target) return rows[0] || null;
+    return rows.find((rate) =>
+      parseGovernorates(rate.governorates).some((item) => item.toLowerCase() === target)
+    ) || rows[0] || null;
+  }
+
+  function getShippingFeeForSelection(governorate, shippingSize) {
+    const rate = findShippingRateForGovernorate(governorate);
+    const field = SHIPPING_WEIGHT_FIELD_MAP[normalizeWeight(shippingSize)] || SHIPPING_WEIGHT_FIELD_MAP.small_medium;
+    const fee = Number(rate?.[field] || 0);
+    if (fee > 0) return fee;
+    return Number(GOVERNORATES.find((gov) => gov.name === governorate)?.shippingFee || 0);
+  }
+  const populateGovernorates = (shippingSize = 'small_medium') => {
     if (!governorateSelect) return;
     governorateSelect.innerHTML = '<option value="" disabled selected>اختر المحافظة للتوصيل</option>';
     GOVERNORATES.forEach(gov => {
       const opt = document.createElement('option');
       opt.value = gov.name;
-      opt.dataset.fee = gov.shippingFee;
-      opt.textContent = `${gov.name} (شحن: ${gov.shippingFee} ج.م)`;
+      const fee = getShippingFeeForSelection(gov.name, shippingSize);
+      opt.dataset.fee = fee;
+      opt.textContent = `${gov.name} (شحن: ${fee} ج.م)`;
       governorateSelect.appendChild(opt);
     });
   };
 
   const updateModalTotals = () => {
     const subtotal = activeOrderState.price * activeOrderState.quantity;
-    const total = subtotal + activeOrderState.shippingFee;
+    const selectedGovernorate = governorateSelect?.value || activeOrderState.governorate || GOVERNORATES[0]?.name || '';
+    const shippingFee = getShippingFeeForSelection(selectedGovernorate, activeOrderState.shippingSize);
+    activeOrderState.governorate = selectedGovernorate;
+    activeOrderState.shippingFee = shippingFee;
+    const total = subtotal + shippingFee;
     modalQtyNum.textContent = activeOrderState.quantity;
     costSubtotal.textContent = `${subtotal.toLocaleString('ar-EG')} ج.م`;
-    costShipping.textContent = `${activeOrderState.shippingFee.toLocaleString('ar-EG')} ج.م`;
+    costShipping.textContent = `${shippingFee.toLocaleString('ar-EG')} ج.م`;
     costTotal.textContent = `${total.toLocaleString('ar-EG')} ج.م`;
   };
 
@@ -334,10 +469,15 @@ document.addEventListener('DOMContentLoaded', () => {
       price: parseFloat(productCard.dataset.price),
       imageSrc: img,
       quantity: 1,
-      shippingFee: governorateSelect.value
-        ? (GOVERNORATES.find(g => g.name === governorateSelect.value)?.shippingFee || 50)
-        : 50
+      shippingSize: (LANDING_CACHE.products || []).find((row) => String(row.id) === String(productCard.dataset.id))?.bosta_weight || 'small_medium',
+      governorate: governorateSelect?.value || GOVERNORATES[0]?.name || '',
+      shippingFee: 0
     };
+
+    populateGovernorates(activeOrderState.shippingSize);
+    if (governorateSelect && !governorateSelect.value) {
+      governorateSelect.value = GOVERNORATES[0]?.name || '';
+    }
 
     modalProdTitle.textContent = activeOrderState.title;
     modalProdPrice.textContent = `${activeOrderState.price.toLocaleString('ar-EG')} ج.م`;
@@ -388,11 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     if (governorateSelect) {
       governorateSelect.addEventListener('change', () => {
-        const govData = GOVERNORATES.find(g => g.name === governorateSelect.value);
-        if (govData) {
-          activeOrderState.shippingFee = govData.shippingFee;
-          updateModalTotals();
-        }
+        updateModalTotals();
       });
     }
   };
@@ -459,6 +595,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!validateCheckoutForm()) return;
 
     const formData = new FormData(checkoutForm);
+    const currentShippingSize = (LANDING_CACHE.products || []).find((row) => String(row.id) === String(activeOrderState.productId))?.bosta_weight || activeOrderState.shippingSize || 'small_medium';
+    const shippingFee = getShippingFeeForSelection(formData.get('governorate'), currentShippingSize);
+    activeOrderState.shippingSize = currentShippingSize;
+    activeOrderState.shippingFee = shippingFee;
     const bostaApiPayload = {
       orderId: `KADY-${Date.now().toString().slice(-6)}`,
       customer: {
@@ -475,18 +615,54 @@ document.addEventListener('DOMContentLoaded', () => {
         unitPrice: activeOrderState.price,
         quantity: activeOrderState.quantity,
         subtotal: activeOrderState.price * activeOrderState.quantity,
-        shippingFee: activeOrderState.shippingFee,
-        totalCODAmount: (activeOrderState.price * activeOrderState.quantity) + activeOrderState.shippingFee
+        shippingFee,
+        totalCODAmount: (activeOrderState.price * activeOrderState.quantity) + shippingFee
       },
       shippingCarrier: 'Bosta Express',
       paymentType: 'COD',
       createdAt: new Date().toISOString()
     };
 
-    console.log('📦 [BOSTA API PAYLOAD]:', JSON.stringify(bostaApiPayload, null, 2));
-    closeCheckoutModal();
-    checkoutForm.reset();
-    showToast(`شكرًا لك يا ${bostaApiPayload.customer.name}! تم استلام طلبك وسيتواصل معك المندوب قريباً. 🚚`);
+    fetch(`${API_BASE}/bosta-create-label`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer: {
+          name: bostaApiPayload.customer.name,
+          phone: bostaApiPayload.customer.phone,
+          altPhone: bostaApiPayload.customer.altPhone,
+          governorate: bostaApiPayload.customer.city,
+          address: bostaApiPayload.customer.address,
+          notes: bostaApiPayload.customer.notes
+        },
+        order: {
+          productId: activeOrderState.productId,
+          productTitle: activeOrderState.title,
+          quantity: activeOrderState.quantity,
+          unitPrice: activeOrderState.price,
+          subtotal: activeOrderState.price * activeOrderState.quantity,
+          shippingSize: currentShippingSize,
+          shippingFee
+        },
+        shippingSize: currentShippingSize,
+        governorate: bostaApiPayload.customer.city,
+        orderNumber: bostaApiPayload.orderId,
+        persistOrder: true
+      })
+    })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error || 'فشل إرسال الطلب');
+        }
+        closeCheckoutModal();
+        checkoutForm.reset();
+        showToast(`شكرًا لك يا ${bostaApiPayload.customer.name}! تم استلام طلبك وسيتواصل معك المندوب قريباً. 🚚`);
+      })
+      .catch((error) => {
+        console.error('Order submission failed:', error);
+        showToast(error.message || 'فشل إرسال الطلب');
+      });
   };
 
   /* ==========================================================================
@@ -506,8 +682,84 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const syncWithAdminDB = () => {
+    return (async () => {
+      try {
+        await hydrateLandingData();
+        const db = LANDING_CACHE;
+
+        if (db.hero) {
+          const prefix = document.querySelector('.brand-prefix');
+          const mainHighlight = document.querySelector('.brand-main-highlight');
+          const suffix = document.querySelector('.brand-suffix');
+          const desc = document.querySelector('.hero-description');
+          const img = document.querySelector('.hero-img');
+
+          if (prefix && (db.hero.prefix || db.hero.title)) prefix.textContent = db.hero.prefix || '';
+          if (mainHighlight && (db.hero.mainTitle || db.hero.title)) mainHighlight.textContent = db.hero.mainTitle || db.hero.title || '';
+          if (suffix && (db.hero.suffix || db.hero.subtitle)) suffix.textContent = db.hero.suffix || db.hero.subtitle || '';
+          if (desc && (db.hero.subtext || db.hero.subtitle)) desc.textContent = db.hero.subtext || db.hero.subtitle || '';
+
+          const heroBtns = document.querySelectorAll('.hero-cta-group .btn');
+          if (heroBtns[0] && (db.hero.cta1 || db.hero.cta_primary)) heroBtns[0].textContent = db.hero.cta1 || db.hero.cta_primary;
+          if (heroBtns[1] && (db.hero.cta2 || db.hero.cta_secondary)) heroBtns[1].textContent = db.hero.cta2 || db.hero.cta_secondary;
+          if (img && (db.hero.img || db.hero.image_url)) img.src = db.hero.img || db.hero.image_url;
+        }
+
+        if (db.announcement && db.announcement.active) {
+          let annBar = document.getElementById('topAnnouncementBar');
+          if (!annBar) {
+            annBar = document.createElement('div');
+            annBar.id = 'topAnnouncementBar';
+            annBar.style.padding = '0.5rem';
+            annBar.style.textAlign = 'center';
+            annBar.style.fontSize = '0.95rem';
+            annBar.style.fontWeight = 'bold';
+            annBar.style.zIndex = '9999';
+            annBar.style.position = 'relative';
+            document.body.insertBefore(annBar, document.body.firstChild);
+          }
+          annBar.textContent = db.announcement.text || '';
+          annBar.style.backgroundColor = db.announcement.bgColor || '#2C3E50';
+          annBar.style.color = db.announcement.textColor || '#FFFFFF';
+        } else {
+          const annBar = document.getElementById('topAnnouncementBar');
+          if (annBar) annBar.remove();
+        }
+
+        if (db.contact) {
+          const waLinks = document.querySelectorAll('a[href^="https://wa.me"]');
+          waLinks.forEach((link) => {
+            if (db.contact.whatsapp) {
+              const text = encodeURIComponent('مرحباً، أنا مهتم بمنتج من معرض أولاد القاضي');
+              link.href = `https://wa.me/2${db.contact.whatsapp}?text=${text}`;
+            }
+          });
+        }
+
+        if (db.platform) {
+          if (db.platform.logo) {
+            const logos = document.querySelectorAll('.brand-logo-img, .footer-logo img');
+            logos.forEach((logo) => (logo.src = db.platform.logo));
+          }
+          if (db.platform.brandName) {
+            document.title = db.platform.brandName;
+          }
+        }
+
+        if (db.cms) {
+          const footerStoreName = document.querySelector('.footer-logo-title');
+          if (footerStoreName && db.cms.storeName) footerStoreName.textContent = db.cms.storeName;
+        }
+
+        renderProducts((Array.isArray(db.products) ? db.products : []).filter((row) => row.is_visible !== false));
+        renderReviews();
+      } catch (error) {
+        console.error('Error syncing with database data:', error);
+        renderProducts([]);
+      }
+    })();
     try {
-      const db = JSON.parse(localStorage.getItem('awladAdminDB'));
+      const db = LANDING_CACHE;
       if (!db) {
         renderProducts([]);
         return;
