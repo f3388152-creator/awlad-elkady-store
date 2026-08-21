@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AWLAD EL-KADY — Landing Page Main Script
  * Dynamic Product Rendering, Checkout Modal, Form Validation & Bosta API Payload
  * ES6+ | Vanilla JS | Ready for Admin Dashboard & API Integration
@@ -742,6 +742,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }, duration);
   };
 
+  const TRACKING_STATUS_LABELS = {
+    label_created: 'تم إنشاء البوليصة',
+    pending: 'قيد الانتظار',
+    created: 'تم إنشاء الطلب',
+    confirmed: 'تم تأكيد الطلب',
+    processing: 'جاري التجهيز',
+    picked_up: 'تم استلام الشحنة',
+    in_transit: 'جاري التوصيل',
+    out_for_delivery: 'خرجت للتوصيل',
+    delivered: 'تم التوصيل',
+    completed: 'تم التوصيل',
+    returned: 'مرتجع',
+    return: 'مرتجع',
+    cancelled: 'تم الإلغاء',
+    failed: 'تعذر التوصيل',
+    updated: 'تم تحديث الحالة'
+  };
+
+  const getTrackingStatusLabel = (status) => {
+    const key = String(status || 'pending').trim().toLowerCase().replace(/[ -]/g, '_');
+    return TRACKING_STATUS_LABELS[key] || 'قيد المتابعة';
+  };
+
   const renderTrackingResult = (payload) => {
     if (!trackingResult) return;
     if (!payload || !payload.found || !payload.tracking) {
@@ -754,16 +777,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const tracking = payload.tracking;
-    trackingResult.className = 'tracking-result';
+    const statusLabel = getTrackingStatusLabel(tracking.status);
+    const waybill = tracking.bosta_tracking_number || '';
+    trackingResult.className = 'tracking-result has-data';
     trackingResult.innerHTML = `
-      <span class="tracking-status">${tracking.status || 'pending'}</span>
-      <h3>طلب ${tracking.order_number || tracking.id || ''}</h3>
-      <div class="tracking-meta">
-        <strong>${tracking.customer_name || 'عميل'}</strong>
-        <span>الموبايل: ${tracking.phone || ' - '}</span>
-        <span>المحافظة: ${tracking.governorate || ' - '}</span>
-        <span>حالة الشحنة: ${tracking.status || 'pending'}</span>
-        <span>رقم البوليصة: ${tracking.bosta_tracking_number || ' - '}</span>
+      <div class="tracking-result-header">
+        <div>
+          <span class="tracking-kicker">تفاصيل الشحنة</span>
+          <h3>نتيجة تتبع طلبك</h3>
+        </div>
+        <span class="tracking-status tracking-status-${String(tracking.status || 'pending').toLowerCase().replace(/[^a-z0-9_-]/g, '')}">${statusLabel}</span>
+      </div>
+      <div class="tracking-details-grid">
+        <div class="tracking-detail"><span>اسم العميل</span><strong>${tracking.customer_name || 'عميل'}</strong></div>
+        <div class="tracking-detail"><span>المحافظة</span><strong>${tracking.governorate || 'غير محددة'}</strong></div>
+        <div class="tracking-detail"><span>رقم الطلب</span><strong>${tracking.order_number || 'غير متاح'}</strong></div>
+        <div class="tracking-detail"><span>رقم البوليصة</span><strong>${waybill || 'غير متاح'}</strong></div>
       </div>
     `;
   };
@@ -899,12 +928,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const suffix = document.querySelector('.brand-suffix');
         const desc = document.querySelector('.hero-description');
         const img = document.querySelector('.hero-img');
-        
+
         if (prefix && db.hero.prefix) prefix.textContent = db.hero.prefix;
         if (mainHighlight && db.hero.mainTitle) mainHighlight.textContent = db.hero.mainTitle;
         if (suffix && db.hero.suffix) suffix.textContent = db.hero.suffix;
         if (desc && db.hero.subtext) desc.textContent = db.hero.subtext;
-        
+
         const heroBtns = document.querySelectorAll('.hero-cta-group .btn');
         if (heroBtns[0] && db.hero.cta1) heroBtns[0].textContent = db.hero.cta1;
         if (heroBtns[1] && db.hero.cta2) heroBtns[1].textContent = db.hero.cta2;
@@ -969,7 +998,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (error) {
       console.error('Error syncing with awladAdminDB:', error);
-      renderProducts([]); 
+      renderProducts([]);
     }
   };
 

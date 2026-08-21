@@ -1,4 +1,4 @@
-﻿const { selectRows, insertRows } = require('./_supabase');
+const { selectRows, insertRows } = require('./_supabase');
 
 function sendJson(res, status, payload) {
   res.status(status).json(payload);
@@ -91,8 +91,7 @@ module.exports = async (req, res) => {
       ok: true,
       found: true,
       tracking: {
-        id: order.id,
-        order_number: order.order_number || order.id || null,
+        order_number: order.order_number || null,
         customer_name: order.customer_name || '',
         phone: order.phone || '',
         governorate: order.governorate || '',
