@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
@@ -176,6 +176,38 @@
         <!-- Products Grid (JS rendered) -->
         <div class="products-grid" id="productsGrid"></div>
 
+      </div>
+    </section>
+
+    <!-- ======================================================
+       TRACKING SECTION
+       ====================================================== -->
+    <section class="section tracking-section" id="tracking">
+      <div class="container">
+        <div class="section-header reveal-on-scroll">
+          <span class="section-tag">متابعة الطلب</span>
+          <h2 class="section-title">تتبع طلبك</h2>
+          <p class="section-subtitle">اكتب رقم الموبايل أو رقم الأوردر، وهنعرض لك حالة الشحنة وآخر تحديث لها.</p>
+        </div>
+
+        <div class="tracking-grid">
+          <article class="tracking-card reveal-on-scroll delay-1">
+            <form id="trackingForm" class="tracking-form">
+              <div class="form-group">
+                <label for="trackingQuery" class="form-label">رقم الموبايل أو رقم الأوردر</label>
+                <input id="trackingQuery" name="query" class="form-control" type="text" placeholder="01012345678 أو KADY-123456" required>
+              </div>
+              <button type="submit" class="btn btn-primary btn-lg btn-block">تتبع الآن</button>
+            </form>
+          </article>
+
+          <article class="tracking-result-card reveal-on-scroll delay-2">
+            <div id="trackingResult" class="tracking-result empty">
+              <h3>جاهز نجيب لك حالة الطلب</h3>
+              <p>أدخل البيانات واضغط تتبع عشان نعرضلك الحالة فوراً.</p>
+            </div>
+          </article>
+        </div>
       </div>
     </section>
 
@@ -479,3 +511,4 @@
   <script src="js/main.js"></script>
 </body>
 </html>
+

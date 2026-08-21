@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AWLAD EL-KADY — Landing Page Main Script
  * Dynamic Product Rendering, Checkout Modal, Form Validation & Bosta API Payload
  * ES6+ | Vanilla JS | Ready for Admin Dashboard & API Integration
@@ -46,6 +46,12 @@ document.addEventListener('DOMContentLoaded', () => {
     huge: 'size_huge'
   };
 
+  const PRODUCT_CATEGORY_LABELS = {
+    'kitchen-tools': 'أدوات مطبخ',
+    'storage-organization': 'تنظيم وتخزين',
+    furniture: 'أثاث'
+  };
+
   /**
    * MOCK_PRODUCTS — يُستبدل بـ API call من لوحة التحكم
    * Categories: electrical | kitchen-tools | serving-sets | kitchen-extras
@@ -64,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const LANDING_CACHE = {
     config: null,
     products: [],
+    categories: [],
     shippingRates: [],
     reviews: [],
     hero: null,
@@ -140,6 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
         whatsapp: LANDING_CACHE.settings.contact_whatsapp || ''
       };
       LANDING_CACHE.platform = null;
+      LANDING_CACHE.categories = buildProductCategories(LANDING_CACHE.products);
 
       LANDING_CACHE.hydrated = true;
     } catch (error) {
@@ -149,6 +157,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     return LANDING_CACHE;
   };
+
+  function normalizeCategory(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return 'kitchen-tools';
+    const aliases = {
+      kitchen: 'kitchen-tools',
+      kitchen_tools: 'kitchen-tools',
+      'kitchen-tools': 'kitchen-tools',
+      'أدوات مطبخ': 'kitchen-tools',
+      storage: 'storage-organization',
+      storage_organization: 'storage-organization',
+      'storage-organization': 'storage-organization',
+      'تنظيم وتخزين': 'storage-organization',
+      furniture: 'furniture',
+      'أثاث': 'furniture'
+    };
+    return aliases[raw] || raw;
+  }
+
+  function buildProductCategories(products) {
+    const seen = new Map();
+    (Array.isArray(products) ? products : []).forEach((product) => {
+      const category = normalizeCategory(product.category || product.category_name || '');
+      if (!seen.has(category)) {
+        seen.set(category, PRODUCT_CATEGORY_LABELS[category] || product.categoryName || category);
+      }
+    });
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }
+
+  function renderCategoryFilters(products = []) {
+    const filterTabs = document.querySelector('.filter-tabs');
+    if (!filterTabs) return;
+
+    const categories = buildProductCategories(products);
+    filterTabs.innerHTML = [
+      '<button class="filter-btn active" data-filter="all">الكل</button>',
+      ...categories.map((category) => `<button class="filter-btn" data-filter="${category.value}">${category.label}</button>`)
+    ].join('');
+  }
 
   /* ==========================================================================
      2. DOM CACHING
@@ -161,10 +209,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const checkoutForm = document.getElementById('checkoutForm');
   const governorateSelect = document.getElementById('governorateSelect');
   const toastContainer = document.getElementById('toastContainer');
-  const filterBtns = document.querySelectorAll('.filter-btn');
   const reviewsSlider = document.getElementById('reviewsSlider');
   const reviewsPrevBtn = document.getElementById('reviewsPrev');
   const reviewsNextBtn = document.getElementById('reviewsNext');
+  const trackingForm = document.getElementById('trackingForm');
+  const trackingResult = document.getElementById('trackingResult');
 
   const modalProdTitle = document.getElementById('modalProdTitle');
   const modalProdPrice = document.getElementById('modalProdPrice');
@@ -253,8 +302,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    renderCategoryFilters(products);
+
     const cardsHtml = products.map((item, index) => {
       const delayClass = `delay-${(index % 4) + 1}`;
+      const normalizedCategory = normalizeCategory(item.category || item.category_name || '');
+      const categoryLabel = PRODUCT_CATEGORY_LABELS[normalizedCategory] || item.categoryName || normalizedCategory;
       const imageMarkup = item.isSvg && item.svgContent
         ? item.svgContent
         : `<img src="${item.image_url || 'assets/air-fryer.png'}" alt="${item.title}" class="product-image" loading="lazy">`;
@@ -276,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return `
         <article class="product-card reveal-on-scroll ${delayClass}"
                  data-id="${item.id}"
-                 data-category="${item.category}"
+                 data-category="${normalizedCategory}"
                  data-title="${item.title}"
                  data-price="${item.price}">
           <div class="product-badge-group">
@@ -287,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ${imageMarkup}
           </div>
           <div class="product-details">
-            <span class="product-category">${item.categoryName || 'أجهزة منزلية'}</span>
+            <span class="product-category">${categoryLabel || 'أجهزة منزلية'}</span>
             <h3 class="product-name">${item.title}</h3>
             ${specLine}
             <div class="product-rating">
@@ -317,7 +370,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Public hooks used by the admin dashboard and API
   window.renderProducts = renderProducts;
-  window.updateProductsList = (newProducts) => renderProducts(newProducts);
+  window.updateProductsList = (newProducts) => {
+    renderCategoryFilters(newProducts);
+    renderProducts(newProducts);
+  };
   window.MOCK_PRODUCTS_CATALOG = MOCK_PRODUCTS;
 
   /* ==========================================================================
@@ -364,26 +420,30 @@ document.addEventListener('DOMContentLoaded', () => {
      6. PRODUCT CATEGORY FILTERING
      ========================================================================== */
   const initProductFilters = () => {
-    filterBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const filterCategory = btn.dataset.filter;
-        filterBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+    const tabs = document.querySelector('.filter-tabs');
+    if (!tabs) return;
 
-        document.querySelectorAll('.product-card').forEach(card => {
-          const match = filterCategory === 'all' || card.dataset.category === filterCategory;
-          if (match) {
-            card.style.display = 'flex';
-            setTimeout(() => {
-              card.style.opacity = '1';
-              card.style.transform = 'translateY(0)';
-            }, 50);
-          } else {
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            setTimeout(() => { card.style.display = 'none'; }, 250);
-          }
-        });
+    tabs.addEventListener('click', (event) => {
+      const btn = event.target.closest('.filter-btn');
+      if (!btn) return;
+
+      const filterCategory = btn.dataset.filter;
+      tabs.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      document.querySelectorAll('.product-card').forEach((card) => {
+        const match = filterCategory === 'all' || card.dataset.category === filterCategory;
+        if (match) {
+          card.style.display = 'flex';
+          setTimeout(() => {
+            card.style.opacity = '1';
+            card.style.transform = 'translateY(0)';
+          }, 50);
+        } else {
+          card.style.opacity = '0';
+          card.style.transform = 'translateY(20px)';
+          setTimeout(() => { card.style.display = 'none'; }, 250);
+        }
       });
     });
   };
@@ -601,6 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeOrderState.shippingFee = shippingFee;
     const bostaApiPayload = {
       orderId: `KADY-${Date.now().toString().slice(-6)}`,
+      orderNumber: `KADY-${Date.now().toString().slice(-6)}`,
       customer: {
         name: formData.get('fullName').trim(),
         phone: formData.get('phone').trim(),
@@ -646,7 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         shippingSize: currentShippingSize,
         governorate: bostaApiPayload.customer.city,
-        orderNumber: bostaApiPayload.orderId,
+        orderNumber: bostaApiPayload.orderNumber,
         persistOrder: true
       })
     })
@@ -657,7 +718,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         closeCheckoutModal();
         checkoutForm.reset();
-        showToast(`شكرًا لك يا ${bostaApiPayload.customer.name}! تم استلام طلبك وسيتواصل معك المندوب قريباً. 🚚`);
+        showToast(`تم تأكيد طلبك بنجاح يا ${bostaApiPayload.customer.name}، وهنتواصل معاك في أقرب وقت لتسليم الشحنة.`);
       })
       .catch((error) => {
         console.error('Order submission failed:', error);
@@ -680,6 +741,72 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => toast.remove(), 400);
     }, duration);
   };
+
+  const renderTrackingResult = (payload) => {
+    if (!trackingResult) return;
+    if (!payload || !payload.found || !payload.tracking) {
+      trackingResult.className = 'tracking-result empty';
+      trackingResult.innerHTML = `
+        <h3>لم يتم العثور على الطلب</h3>
+        <p>راجع رقم الموبايل أو رقم الأوردر وجرب مرة ثانية.</p>
+      `;
+      return;
+    }
+
+    const tracking = payload.tracking;
+    trackingResult.className = 'tracking-result';
+    trackingResult.innerHTML = `
+      <span class="tracking-status">${tracking.status || 'pending'}</span>
+      <h3>طلب ${tracking.order_number || tracking.id || ''}</h3>
+      <div class="tracking-meta">
+        <strong>${tracking.customer_name || 'عميل'}</strong>
+        <span>الموبايل: ${tracking.phone || ' - '}</span>
+        <span>المحافظة: ${tracking.governorate || ' - '}</span>
+        <span>حالة الشحنة: ${tracking.status || 'pending'}</span>
+        <span>رقم البوليصة: ${tracking.bosta_tracking_number || ' - '}</span>
+      </div>
+    `;
+  };
+
+  async function handleTrackingLookup(event) {
+    event.preventDefault();
+    if (!trackingForm || !trackingResult) return;
+
+    const data = new FormData(trackingForm);
+    const query = String(data.get('query') || '').trim();
+    if (!query) return;
+
+    trackingResult.className = 'tracking-result';
+    trackingResult.innerHTML = `
+      <h3>جارٍ البحث...</h3>
+      <p>بنراجع البيانات مع Supabase دلوقتي.</p>
+    `;
+
+    try {
+      const response = await fetch(`${API_BASE}/order-tracking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: query,
+          orderNumber: query,
+          trackingNumber: query
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'تعذر جلب بيانات التتبع');
+      }
+
+      renderTrackingResult(result);
+      if (result.found && result.tracking?.customer_name) {
+        showToast(`تم إظهار حالة الطلب للعميل ${result.tracking.customer_name}`);
+      }
+    } catch (error) {
+      renderTrackingResult({ found: false });
+      showToast(error.message || 'فشل التتبع');
+    }
+  }
 
   const syncWithAdminDB = () => {
     return (async () => {
@@ -834,6 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 4. Products Sync
       if (db.products && Array.isArray(db.products)) {
+        renderCategoryFilters(db.products);
         renderProducts(db.products);
       } else {
         renderProducts([]);
@@ -856,6 +984,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initProductFilters();
   initModalEvents();
 
+  if (trackingForm) trackingForm.addEventListener('submit', handleTrackingLookup);
+
   if (checkoutForm) {
     checkoutForm.querySelectorAll('.form-control').forEach(input => {
       input.addEventListener('input', () => {
@@ -869,3 +999,4 @@ document.addEventListener('DOMContentLoaded', () => {
     checkoutForm.addEventListener('submit', handleFormSubmission);
   }
 });
+

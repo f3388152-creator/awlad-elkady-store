@@ -1,4 +1,4 @@
-module.exports = (req, res) => {
+﻿module.exports = (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json');
 
@@ -10,3 +10,4 @@ module.exports = (req, res) => {
     supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET || 'admin-media'
   });
 };
+
