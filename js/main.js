@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ]);
 
       LANDING_CACHE.products = Array.isArray(products) ? products : [];
-      LANDING_CACHE.settings = Array.isArray(settings) ? (settings[0] || {}) : {};
+      LANDING_CACHE.settings = Array.isArray(settings) ? (settings[0] || {}) : (settings || {});
       LANDING_CACHE.shippingRates = Array.isArray(shippingRates) ? shippingRates : [];
       LANDING_CACHE.siteSettings = LANDING_CACHE.settings;
       LANDING_CACHE.hero = {
@@ -236,6 +236,31 @@ document.addEventListener('DOMContentLoaded', () => {
    * @param {Array} products
    */
   const getLandingReviews = () => Array.isArray(LANDING_CACHE.reviews) ? LANDING_CACHE.reviews : [];
+
+  const applySiteSettings = (settings = {}) => {
+    const values = {
+      logo_url: settings.logo_url || settings.logo || '',
+      phone: settings.contact_phone || settings.phone || '',
+      whatsapp: settings.contact_whatsapp || settings.whatsapp || '',
+      address: settings.address || settings.store_address || '',
+      footer_description: settings.footer_description || settings.store_description || '',
+      store_name: settings.store_name || settings.brand_name || '',
+      page_title: settings.page_title || ''
+    };
+
+    document.querySelectorAll('[data-site-setting]').forEach((element) => {
+      const value = values[element.dataset.siteSetting];
+      if (!value) return;
+      if (element.tagName === 'IMG') element.src = value;
+      else element.textContent = value;
+    });
+
+    document.querySelectorAll('[data-contact-link="whatsapp"]').forEach((link) => {
+      if (values.whatsapp) link.href = `https://wa.me/${values.whatsapp.replace(/[^0-9]/g, '')}`;
+    });
+    if (values.store_name) document.querySelectorAll('.brand-title, .footer-logo-title').forEach((el) => { el.textContent = values.store_name; });
+    if (values.page_title) document.title = values.page_title;
+  };
 
   const renderReviews = () => {
     if (!reviewsSlider) return;
@@ -842,6 +867,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         await hydrateLandingData();
         const db = LANDING_CACHE;
+        applySiteSettings(db.settings || {});
 
         if (db.hero) {
           const prefix = document.querySelector('.brand-prefix');
