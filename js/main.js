@@ -123,13 +123,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (LANDING_CACHE.hydrated) return LANDING_CACHE;
 
     try {
-      const [products, settings, shippingRates] = await Promise.all([
+      const [products, categories, settings, shippingRates] = await Promise.all([
         supabaseSelect('products'),
+        supabaseSelect('categories'),
         supabaseSelect('site_settings'),
         supabaseSelect('shipping_rates')
       ]);
 
       LANDING_CACHE.products = Array.isArray(products) ? products : [];
+      LANDING_CACHE.categories = Array.isArray(categories) ? categories : [];
       LANDING_CACHE.settings = Array.isArray(settings) ? (settings[0] || {}) : (settings || {});
       LANDING_CACHE.shippingRates = Array.isArray(shippingRates) ? shippingRates : [];
       LANDING_CACHE.siteSettings = LANDING_CACHE.settings;
@@ -581,9 +583,10 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const bindOrderButtons = () => {
-    document.querySelectorAll('.product-order-btn, .js-trigger-checkout').forEach(btn => {
-      btn.onclick = (e) => {
-        e.preventDefault();
+    document.querySelectorAll('.product-order-btn, .js-trigger-checkout').forEach((btn) => {
+      btn.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         const card = btn.closest('.product-card');
         if (card) openCheckoutModal(card);
       };
@@ -1016,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 4. Products Sync
       if (db.products && Array.isArray(db.products)) {
-        renderCategoryFilters(db.products);
+        renderCategoryFilters(Array.isArray(db.categories) && db.categories.length ? db.categories : db.products);
         renderProducts(db.products);
       } else {
         renderProducts([]);
