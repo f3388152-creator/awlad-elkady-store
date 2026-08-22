@@ -6,11 +6,15 @@ create table if not exists public.categories (
   created_at timestamptz not null default now()
 );
 
-alter table public.categories enable row level security;
-create policy "public can read visible categories" on public.categories for select using (is_visible = true);
+alter table public.categories disable row level security;
 
 insert into public.categories (name, slug)
 values ('أدوات مطبخ', 'kitchen-tools'), ('تنظيم وتخزين', 'storage-organization'), ('أثاث', 'furniture')
 on conflict (slug) do nothing;
 
-alter table public.site_settings add column if not exists address text;
+alter table public.site_settings
+  add column if not exists address text,
+  add column if not exists logo_url text,
+  add column if not exists footer_description text;
+
+notify pgrst, 'reload schema';

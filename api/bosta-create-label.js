@@ -161,6 +161,7 @@ module.exports = async (req, res) => {
       const response = await fetch(bostaUrl, {
         method: 'POST',
         headers: {
+          'X-API-KEY': bostaApiKey,
           Authorization: `Bearer ${bostaApiKey}`,
           'Content-Type': 'application/json'
         },
