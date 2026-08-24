@@ -775,6 +775,16 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   Supabase.select(TABLES.shipping_rates).then(rates => { window.liveShippingRates = rates || []; }).catch(console.error);
   loadProducts();
+  // Safety fallback: never leave the catalog on an endless loading state.
+  window.setTimeout(() => {
+    if (Dom.productGrid && Dom.productGrid.querySelector('.products-loading')) {
+      const safeProducts = CATALOG_PRODUCTS.map((p, index) => ({ ...p, id: `catalog-${index + 1}`, stock: 1, is_active: true }));
+      state.products = safeProducts;
+      state.filteredProducts = safeProducts;
+      renderProducts(safeProducts);
+      buildFilters(safeProducts);
+    }
+  }, 1500);
   renderTestimonials();
   initReveal();
   initModalBackdrops();

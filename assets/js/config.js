@@ -9,13 +9,18 @@ const SUPABASE_CONFIG = {
   anonKey: 'sb_publishable_Yt0AMwrH7jstWy2aUuIz5g_aDhQh88j'
 };
 
-// معرف جدول المنتجات في Supabase
+// معرف الجداول في Supabase
 const TABLES = {
   products: 'products',
-  orders:   'orders'
+  orders:   'orders',
+  categories: 'categories',
+  product_categories: 'product_categories',
+  shipping_rates: 'shipping_rates',
+  complaints: 'complaints',
+  site_settings: 'site_settings'
 };
 
-// محافظات مصر
+// محافظات مصر ومناطق الشحن (تُستخدم فقط للقائمة المنسدلة الأولية)
 const EGYPT_GOVS = [
   'القاهرة','الجيزة','الإسكندرية','الدقهلية','البحر الأحمر',
   'البحيرة','الفيوم','الغربية','الإسماعيلية','مطروح',
@@ -24,3 +29,18 @@ const EGYPT_GOVS = [
   'كفر الشيخ','قنا','شمال سيناء','الشرقية','سوهاج',
   'الأقصر','عين شمس','حلوان','مدينة نصر'
 ];
+
+window.liveShippingRates = []; // سيتم ملؤها من قاعدة البيانات
+
+// دالة حساب الشحن (تعتمد على liveShippingRates بدلاً من الأرقام الثابتة)
+function calculateShipping(governorate, bostaSizeParam, subtotal = 0) {
+  const settings = window.siteSettings || {};
+  if (settings.free_shipping_enabled === true && subtotal >= (Number(settings.free_shipping_threshold) || 1000)) return 0;
+  if (settings.shipping_custom === true) {
+    return settings.shipping_type === 'free' ? 0 : Number(settings.shipping_flat_rate) || 0;
+  }
+  const rateItem = window.liveShippingRates.find(r => r.governorate === governorate);
+  const baseRate = rateItem ? parseFloat(rateItem.base_fee) : 55;
+  const extraSizeFee = parseFloat(bostaSizeParam) || 0;
+  return baseRate + extraSizeFee;
+}
