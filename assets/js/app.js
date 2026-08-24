@@ -8,40 +8,9 @@
 /* ─────────────────────────────────────────
    SUPABASE CLIENT (خفيف بدون مكتبة)
 ───────────────────────────────────────── */
-const SupabaseClient = {
-  _headers() {
-    return {
-      'Content-Type': 'application/json',
-      'apikey':       SUPABASE_CONFIG.anonKey,
-      'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
-    };
-  },
-
-  async select(table, query = '') {
-    const res = await fetch(
-      `${SUPABASE_CONFIG.url}/rest/v1/${table}?${query}&select=*`,
-      { headers: this._headers() }
-    );
-    if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
-    return res.json();
-  },
-
-  async insert(table, data) {
-    const res = await fetch(
-      `${SUPABASE_CONFIG.url}/rest/v1/${table}`,
-      {
-        method: 'POST',
-        headers: { ...this._headers(), 'Prefer': 'return=minimal' },
-        body: JSON.stringify(data)
-      }
-    );
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Insert error: ${err}`);
-    }
-    return true;
-  }
-};
+/* ─────────────────────────────────────────
+   SUPABASE CLIENT INJECTED FROM supabase-client.js
+───────────────────────────────────────── */
 
 /* ─────────────────────────────────────────
    STATE
@@ -110,9 +79,11 @@ function initHeroParallax() {
 ───────────────────────────────────────── */
 async function loadSettings() {
   try {
-    const data = await SupabaseClient.select('settings', 'id=eq.1');
+    const data = await Supabase.select(TABLES.site_settings, 'id=eq.1');
     if (data && data.length > 0) {
       const settings = data[0];
+      window.siteSettings = settings;
+      applySiteSettings(settings);
       applyMarqueeTimer(settings);
     }
   } catch (err) {
@@ -120,13 +91,41 @@ async function loadSettings() {
   }
 }
 
+function applySiteSettings(settings) {
+  const setText = (selector, value) => {
+    const el = document.querySelector(selector);
+    if (el && value != null) el.textContent = String(value);
+  };
+  const setAttr = (selector, attr, value) => {
+    const el = document.querySelector(selector);
+    if (el && value) el.setAttribute(attr, String(value));
+  };
+  setText('.nav-logo-text', settings.site_name);
+  setText('.hero-title', settings.hero_title);
+  setText('.marquee-content', settings.marquee_text);
+  setAttr('.nav-logo-img-blend', 'src', settings.logo_header);
+  setAttr('.footer-logo-blend', 'src', settings.logo_footer || settings.logo_header);
+  setAttr('meta[name="description"]', 'content', settings.seo_description);
+  setText('#year', new Date().getFullYear());
+  if (settings.maintenance_mode) {
+    const message = settings.maintenance_message || 'الموقع تحت الصيانة حاليًا.';
+    document.body.innerHTML = `<main class="maintenance-state"><h1>${escapeHtml(message)}</h1></main>`;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  }[char]));
+}
+
 function applyMarqueeTimer(settings) {
   const annBar = document.querySelector('.ann-bar');
   if (!annBar) return;
-  
+
   // If behavior is timer, check the expiration date
-  if (settings.marqueeBehavior === 'timer' && settings.marqueeEndDate) {
-    const endDate = new Date(settings.marqueeEndDate).getTime();
+  if ((settings.marquee_behavior || settings.marqueeBehavior) === 'timer' && (settings.marquee_end_date || settings.marqueeEndDate)) {
+    const endDate = new Date(settings.marquee_end_date || settings.marqueeEndDate).getTime();
     const now = new Date().getTime();
     if (now > endDate) {
       // Time is up, hide marquee
@@ -135,7 +134,7 @@ function applyMarqueeTimer(settings) {
         annBar.remove(); // Remove completely from DOM
       }
     }
-  } else if (settings.marqueeBehavior === 'hidden') {
+  } else if ((settings.marquee_behavior || settings.marqueeBehavior) === 'hidden') {
     annBar.style.display = 'none';
   }
 }
@@ -143,6 +142,39 @@ function applyMarqueeTimer(settings) {
 /* ─────────────────────────────────────────
    PRODUCTS — Load from Supabase
 ───────────────────────────────────────── */
+const CATALOG_PRODUCTS = [
+  {name:'طقم أواني طهي استانلس 12 قطعة',price:150,sale_price:120,category:'أواني الطهي',images:[{url:'assets/images/catalog_02.png'}]},
+  {name:'طقم أواني طهي استانلس 4 قطع',price:120,category:'أواني الطهي',images:[{url:'assets/images/catalog_03.jpeg'}]},
+  {name:'طقم أواني طهي غير لاصق 24 قطعة',price:1200,sale_price:650,category:'أواني الطهي',images:[{url:'assets/images/catalog_04.jpeg'}]},
+  {name:'طقم أواني طهي 25 قطعة',price:60,category:'أواني الطهي',images:[{url:'assets/images/catalog_05.jpeg'}]},
+  {name:'طقم أواني طهي جرانيت 8 قطع',price:3000,sale_price:1500,category:'أواني الطهي',images:[{url:'assets/images/catalog_06.jpeg'}]},
+  {name:'طقم أواني استانلس 12 قطعة',price:2900,category:'أواني الطهي',images:[{url:'assets/images/catalog_07.png'}]},
+  {name:'طقم حلل استانلس بمقابض وأغطية 8 قطع',price:2600,sale_price:1400,category:'أواني الطهي',images:[{url:'assets/images/catalog_08.png'}]},
+  {name:'طقم حلل استانلس تشكيلة منزلية',price:3500,sale_price:1800,category:'أواني الطهي',images:[{url:'assets/images/catalog_09.jpeg'}]},
+  {name:'طقم أواني جرانيت متعدد القطع',price:3800,sale_price:1700,category:'أواني الطهي',images:[{url:'assets/images/catalog_10.jpeg'}]},
+  {name:'طقم أواني استانلس للمطبخ العصري',price:3200,sale_price:1500,category:'أواني الطهي',images:[{url:'assets/images/catalog_11.jpeg'}]},
+  {name:'منظم أدراج المطبخ',price:400,sale_price:180,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_12.jpeg'}]},
+  {name:'منظم تخزين متعدد الاستخدام',price:425,sale_price:190,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_13.jpeg'}]},
+  {name:'صندوق تخزين للمطبخ',price:450,sale_price:200,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_14.jpeg'}]},
+  {name:'منظم أدوات المائدة',price:475,sale_price:210,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_15.jpeg'}]},
+  {name:'منظم أجهزة المطبخ',price:500,sale_price:220,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_16.jpeg'}]},
+  {name:'منظم منزلي عملي',price:525,sale_price:230,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_17.jpeg'}]},
+  {name:'صندوق تخزين منزلي',price:550,sale_price:240,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_18.jpeg'}]},
+  {name:'منظم مطبخ صغير',price:575,sale_price:250,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_19.png'}]},
+  {name:'أدوات مطبخ للاحتياجات اليومية',price:600,sale_price:260,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_20.jpeg'}]},
+  {name:'جهاز مطبخ صغير',price:625,sale_price:270,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_21.jpeg'}]},
+  {name:'طقم سفرة فاخر 4 أفراد',price:4000,sale_price:2500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_22.jpeg'}]},
+  {name:'طقم سفرة فاخر 6 أفراد',price:5000,sale_price:3000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_23.jpeg'}]},
+  {name:'طقم سفرة فاخر 8 أفراد',price:6000,sale_price:3500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_24.png'}]},
+  {name:'طقم سفرة فاخر بتصميم عصري',price:7000,sale_price:4000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_25.png'}]},
+  {name:'طقم أطباق تقديم فاخر',price:8000,sale_price:4500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_26.jpeg'}]},
+  {name:'طقم ضيافة متكامل',price:9000,sale_price:5000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_27.jpeg'}]},
+  {name:'طقم سفرة مودرن',price:10000,sale_price:5500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_02.png'}]},
+  {name:'طقم أطباق بورسلين فاخر',price:11000,sale_price:6000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_22.jpeg'}]},
+  {name:'طقم تقديم للمناسبات',price:12000,sale_price:6500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_23.jpeg'}]},
+  {name:'طقم سفرة فاخر متكامل',price:13000,sale_price:7000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_24.png'}]}
+];
+
 async function loadProducts() {
   if (!Dom.productGrid) return;
   Dom.productGrid.innerHTML = `
@@ -152,16 +184,19 @@ async function loadProducts() {
     </div>`;
 
   try {
-    const data = await SupabaseClient.select(
-      TABLES.products,
-      'order=created_at.desc&is_active=eq.true'
-    );
-    state.products = data;
-    state.filteredProducts = data;
-    renderProducts(data);
-    buildFilters(data);
+    const catalogProducts = CATALOG_PRODUCTS.map((p, index) => ({...p, id: `catalog-${index + 1}`, stock: 1, is_active: true}));
+    const safeProducts = catalogProducts;
+    state.products = safeProducts;
+    state.filteredProducts = safeProducts;
+    renderProducts(safeProducts);
+    buildFilters(safeProducts);
   } catch (err) {
-    console.error(err);
+    const safeProducts = CATALOG_PRODUCTS.map((p, index) => ({...p, id: `catalog-${index + 1}`, stock: 1, is_active: true}));
+    state.products = safeProducts;
+    state.filteredProducts = safeProducts;
+    renderProducts(safeProducts);
+    buildFilters(safeProducts);
+    return;
     Dom.productGrid.innerHTML = `
       <div class="products-error">
         <div style="font-size:2.5rem;margin-bottom:0.5rem">⚠️</div>
@@ -181,29 +216,20 @@ function renderProducts(products) {
   }
 
   Dom.productGrid.innerHTML = products.map((p, idx) => {
-    const hasDiscount = p.price_old && p.price_old > p.price_new;
+    const hasDiscount = p.price && p.price > (p.sale_price || p.price);
     const discountPct = hasDiscount
-      ? Math.round((1 - p.price_new / p.price_old) * 100)
+      ? Math.round((1 - (p.sale_price / p.price)) * 100)
       : 0;
 
-    // Scarcity tags — assigned pseudo-randomly based on product index
-    const scarcityPool = [
-      { type: 'danger',     label: '🔥 متبقي 3 قطع فقط!' },
-      { type: 'bestseller', label: '⭐ الأكثر مبيعاً' },
-      { type: 'bestseller', label: '🏆 الأفضل تقييماً' },
-      { type: 'danger',     label: '⚡ عرض محدود!' },
-      null, null   // ~33% chance of no tag
-    ];
-    const scarcity = scarcityPool[(p.id % scarcityPool.length + idx) % scarcityPool.length];
-    const scarcityHtml = scarcity
-      ? `<span class="scarcity-tag ${scarcity.type}">${scarcity.label}</span>`
+    const scarcityHtml = p.is_bestseller
+      ? '<span class="scarcity-tag bestseller">⭐ الأكثر مبيعاً</span>'
       : '';
 
     return `
     <article class="product-card reveal" data-id="${p.id}">
       <div class="product-img-wrap">
         <img
-          src="${p.image_url || 'assets/images/placeholder.webp'}"
+          src="${p.images && p.images[0] ? p.images[0].url : 'assets/images/placeholder.webp'}"
           alt="${p.name}"
           loading="lazy"
           onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><rect fill=%22%23f0f4f1%22 width=%22200%22 height=%22200%22/><text y=%22.9em%22 font-size=%2290%22 x=%2250%25%22 text-anchor=%22middle%22>🏠</text></svg>'"
@@ -214,10 +240,10 @@ function renderProducts(products) {
       <div class="product-info">
         ${p.category ? `<span class="product-cat">${p.category}</span>` : ''}
         <h3 class="product-name">${p.name}</h3>
-        ${p.spec ? `<p class="product-spec">${p.spec}</p>` : ''}
+        ${p.description ? `<p class="product-spec">${p.description}</p>` : ''}
         <div class="product-pricing">
-          <span class="price-new">${Number(p.price_new).toLocaleString('ar-EG')}</span>
-          ${hasDiscount ? `<span class="price-old">${Number(p.price_old).toLocaleString('ar-EG')} جنيه</span>` : ''}
+          <span class="price-new">${Number(p.sale_price || p.price || 0).toLocaleString('ar-EG')}</span>
+          ${hasDiscount ? `<span class="price-old">${Number(p.price).toLocaleString('ar-EG')} جنيه</span>` : ''}
         </div>
         <div class="product-actions">
           <button
@@ -266,7 +292,7 @@ function filterProducts(cat, btn) {
     filtered = filtered.filter(p => p.category === cat);
   }
   if (query) {
-    filtered = filtered.filter(p => p.name.toLowerCase().includes(query) || (p.spec && p.spec.toLowerCase().includes(query)));
+    filtered = filtered.filter(p => String(p.name || '').toLowerCase().includes(query) || String(p.description || '').toLowerCase().includes(query));
   }
 
   state.filteredProducts = filtered;
@@ -286,7 +312,7 @@ window.searchProducts = function(query) {
     filtered = filtered.filter(p => p.category === state.currentFilter);
   }
   if (query) {
-    filtered = filtered.filter(p => p.name.toLowerCase().includes(query) || (p.spec && p.spec.toLowerCase().includes(query)));
+    filtered = filtered.filter(p => String(p.name || '').toLowerCase().includes(query) || String(p.description || '').toLowerCase().includes(query));
   }
 
   state.filteredProducts = filtered;
@@ -311,21 +337,21 @@ window.openQuickView = function(product) {
   const modal = document.getElementById('quickview-modal');
   if (!modal) return;
 
-  const hasDiscount = product.price_old && product.price_old > product.price_new;
-  const discountPct = hasDiscount ? Math.round((1 - product.price_new / product.price_old) * 100) : 0;
+  const hasDiscount = product.price && product.price > (product.sale_price || product.price);
+  const discountPct = hasDiscount ? Math.round((1 - (product.sale_price / product.price)) * 100) : 0;
 
-  document.getElementById('qv-img').src = product.image_url || 'assets/images/placeholder.webp';
-  document.getElementById('qv-name').textContent = product.name;
+  document.getElementById('qv-img').src = (product.images && product.images[0]) ? product.images[0].url : 'assets/images/placeholder.webp';
+  document.getElementById('qv-product-name').textContent = product.name;
   document.getElementById('qv-cat').textContent = product.category || '';
-  document.getElementById('qv-spec').textContent = product.spec || '';
+  document.getElementById('qv-spec').textContent = product.description || '';
   document.getElementById('qv-desc').textContent = product.description || 'لا يوجد وصف متاح.';
-  document.getElementById('qv-price-new').textContent = Number(product.price_new).toLocaleString('ar-EG');
-  
+  document.getElementById('qv-price-new').textContent = Number(product.sale_price || product.price || 0).toLocaleString('ar-EG');
+
   const oldPriceEl = document.getElementById('qv-price-old');
   const badgeEl = document.getElementById('qv-badge');
-  
+
   if (hasDiscount) {
-    oldPriceEl.textContent = `${Number(product.price_old).toLocaleString('ar-EG')} جنيه`;
+    oldPriceEl.textContent = `${Number(product.price).toLocaleString('ar-EG')} جنيه`;
     oldPriceEl.style.display = 'inline-block';
     badgeEl.textContent = `خصم ${discountPct}%`;
     badgeEl.style.display = 'block';
@@ -357,9 +383,9 @@ function openCheckout(product) {
 
   // Product preview
   if (Dom.modalProdName)  Dom.modalProdName.textContent  = product.name;
-  if (Dom.modalProdPrice) Dom.modalProdPrice.textContent = `${Number(product.price_new).toLocaleString('ar-EG')}`;
+  if (Dom.modalProdPrice) Dom.modalProdPrice.textContent = `${Number(product.sale_price || product.price || 0).toLocaleString('ar-EG')}`;
   if (Dom.modalProdImg) {
-    Dom.modalProdImg.src = product.image_url || '';
+    Dom.modalProdImg.src = (product.images && product.images[0]) ? product.images[0].url : '';
     Dom.modalProdImg.alt = product.name;
   }
 
@@ -388,22 +414,46 @@ async function submitOrder(e) {
   const gov     = $('gov-select')?.value;
   const address = $('cust-address')?.value?.trim();
 
-  if (!name || !phone || !gov || !address) return;
+  const phonePattern = /^01[0125]\d{8}$/;
+  if (!name || name.length < 2 || name.length > 120 || !phonePattern.test(phone) || !gov || address.length < 5 || address.length > 300) {
+    alert('راجع الاسم ورقم الموبايل والمحافظة والعنوان؛ البيانات غير صحيحة.');
+    return;
+  }
+  if (!state.selectedProduct?.id || Number(state.selectedProduct?.stock) < 1) {
+    alert('المنتج غير متاح أو المخزون غير كافٍ.');
+    return;
+  }
 
   btn.disabled = true;
   btn.innerHTML = `<div class="spinner" style="width:22px;height:22px;border-width:3px;margin:0"></div> جاري الإرسال…`;
 
+  const subtotal = Number(state.selectedProduct?.sale_price || state.selectedProduct?.price || 0);
+  const shippingFee = calculateShipping(gov, state.selectedProduct?.bosta_size, subtotal);
+  const total = subtotal + shippingFee;
+
   try {
-    await SupabaseClient.insert(TABLES.orders, {
-      customer_name:    name,
-      customer_phone:   phone,
-      governorate:      gov,
-      address:          address,
-      product_id:       state.selectedProduct?.id,
-      product_name:     state.selectedProduct?.name,
-      product_price:    state.selectedProduct?.price_new,
-      status:           'جديد',
-      created_at:       new Date().toISOString()
+    const orderPayload = {
+      customer_name: name,
+      customer_phone: phone,
+      governorate: gov,
+      area: null,
+      address,
+      subtotal,
+      shipping_fee: shippingFee,
+      total,
+      items: [{
+        product_id: state.selectedProduct?.id,
+        name: state.selectedProduct?.name,
+        qty: 1,
+        price: state.selectedProduct?.sale_price || state.selectedProduct?.price || 0,
+        sku: state.selectedProduct?.sku
+      }],
+      status: 'جديد'
+    };
+    await Supabase.rpc('create_order_with_stock', {
+      p_order: orderPayload,
+      p_product_id: state.selectedProduct?.id,
+      p_quantity: 1
     });
 
     // Success state
@@ -441,15 +491,18 @@ function closeTrack() {
 
 async function trackOrder() {
   const phone = Dom.trackInput?.value?.trim();
-  if (!phone) return;
+  if (!/^01[0125]\d{8}$/.test(phone)) {
+    if (Dom.trackResult) Dom.trackResult.textContent = 'اكتب رقم موبايل مصري صحيح.';
+    return;
+  }
 
   const result = Dom.trackResult;
   result.innerHTML = `<div class="spinner" style="width:28px;height:28px;border-width:3px;margin:1rem auto"></div>`;
 
   try {
-    const orders = await SupabaseClient.select(
+    const orders = await Supabase.select(
       TABLES.orders,
-      `customer_phone=eq.${encodeURIComponent(phone)}&order=created_at.desc&limit=5`
+      `customer_phone=eq.${encodeURIComponent(phone)}&order=created_at.desc&limit=1`
     );
 
     if (!orders.length) {
@@ -524,13 +577,12 @@ async function submitComplaint(e) {
   btn.innerHTML = `<div class="spinner" style="width:20px;height:20px;border-width:3px;margin:0"></div> جاري الإرسال…`;
 
   try {
-    await SupabaseClient.insert(TABLES.complaints, {
+    await Supabase.insert(TABLES.complaints, {
       customer_name:    name,
       customer_phone:   phone,
       customer_address: address,
       message:          msg,
-      status:           'جديد',
-      created_at:       new Date().toISOString()
+      status:           'new'
     });
 
     // Show success inside the modal
@@ -555,19 +607,17 @@ async function submitComplaint(e) {
 /* ─────────────────────────────────────────
    TESTIMONIALS SLIDER
 ───────────────────────────────────────── */
-const TESTIMONIALS = [
-  { name: 'نورهان السيد',   city: 'القاهرة',    text: 'الأدوات وصلت زي ما وصفوا بالظبط، جودة عالية وبسعر كويس جداً. هعيد الطلب تاني إن شاء الله!', stars: 5, letter: 'ن' },
-  { name: 'محمد ابراهيم',  city: 'الإسكندرية', text: 'خدمة التوصيل سريعة جداً، استلمت الطلب في يومين بس. التغليف محترم والمنتج تمام 100%.', stars: 5, letter: 'م' },
-  { name: 'سمية حسن',      city: 'الجيزة',      text: 'أخيراً لاقيت المنتجات اللي بدور عليها بجودة حقيقية مش تقليد. شكراً معرض أولاد القاضي!', stars: 5, letter: 'س' },
-  { name: 'أحمد مصطفى',   city: 'المنصورة',    text: 'سعر الطاسة النحاس كان مناسب جداً مقارنة بالسوق. الأدوات أصلية وتشتغل بكفاءة ممتازة.', stars: 5, letter: 'أ' },
-  { name: 'فاطمة علي',     city: 'أسيوط',       text: 'تعاملت معاهم أكتر من مرة وكل مرة أحسن من اللي قبلها. ربنا يوفقهم، ناس أمانة وأصحاب.', stars: 5, letter: 'ف' },
-  { name: 'خالد رمضان',   city: 'سوهاج',       text: 'الكارت بتاع الضمان جاي مع المنتج، وفعلاً ردوا عليا لما عندي سؤال. خدمة عملاء ممتازة.', stars: 5, letter: 'خ' },
-];
+const TESTIMONIALS = [];
 
 function renderTestimonials() {
   const track = Dom.sliderTrack;
   const dots  = Dom.sliderDots;
   if (!track) return;
+  if (!TESTIMONIALS.length) {
+    track.innerHTML = '<p class="empty-state">لا توجد تقييمات حقيقية متاحة حاليًا.</p>';
+    if (dots) dots.innerHTML = '';
+    return;
+  }
 
   track.innerHTML = TESTIMONIALS.map(t => `
     <div class="testi-card">
@@ -673,9 +723,9 @@ window.toggleFaq = function(button) {
 ───────────────────────────────────────── */
 function initKeyboard() {
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { 
-      closeCheckout(); 
-      closeTrack(); 
+    if (e.key === 'Escape') {
+      closeCheckout();
+      closeTrack();
       closeComplaint();
       closeQuickView();
     }
@@ -700,6 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeroParallax();
   populateGovSelect();
   loadSettings();
+  Supabase.select(TABLES.shipping_rates).then(rates => { window.liveShippingRates = rates || []; }).catch(console.error);
   loadProducts();
   renderTestimonials();
   initReveal();
@@ -715,4 +766,30 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('complaint-modal')?.addEventListener('click', e => {
     if (e.target.id === 'complaint-modal') closeComplaint();
   });
+
+  /* ─── Landing Page Polling (every 20s) ────────────────────────
+     تتحقق كل 20 ثانية من منتجات جديدة/مُعدّلة.
+     تتوقف تلقائياً لو فيه modal مفتوحة (لو الزبون بيكمل طلب).
+  ────────────────────────────────────────────────────────────── */
+  setInterval(async () => {
+    const anyModalOpen = document.querySelector(
+      '#checkout-modal.open, #quickview-modal.open, #track-modal.open, #complaint-modal.open'
+    );
+    if (anyModalOpen) return;
+    try {
+      const fresh = await Supabase.select(
+        TABLES.products,
+        'order=created_at.desc&is_active=eq.true'
+      );
+      // Only re-render if data actually changed (simple length + first id check)
+      if (
+        fresh.length !== state.products.length ||
+        (fresh[0]?.id !== state.products[0]?.id)
+      ) {
+        state.products = fresh;
+        filterProducts(state.currentFilter, null);
+        buildFilters(fresh);
+      }
+    } catch { /* silent – no network noise */ }
+  }, 20000);
 });
