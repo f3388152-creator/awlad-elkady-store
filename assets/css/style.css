@@ -609,7 +609,8 @@ ul, ol { list-style: none; }
 .qv-stock { color: var(--clr-success); font-weight: 700; margin-bottom: .5rem; }
 .contact-info { grid-column: 1 / -1; text-align: center; padding: 1rem; }
 .footer-brand-name { flex-basis: 100%; font-size: 1.05rem; font-weight: 800; }
-.footer-address, .site-address-footer { display: block; flex-basis: 100%; font-size: .8rem; opacity: .8; }
+.footer-address, .site-address-footer {
+  color: #f4fff7; display: block; flex-basis: 100%; font-size: .8rem; opacity: .8; }
 
 /* ─── MODAL GLOBAL STYLES ─── */
 .modal-backdrop {
@@ -1038,6 +1039,7 @@ ul, ol { list-style: none; }
 /* ─── FOOTER ─── */
 footer {
   background: var(--clr-dark);
+  color: #f4fff7;
   padding: 2.5rem 0 1.5rem;
 }
 
@@ -1050,6 +1052,8 @@ footer {
 }
 
 .footer-logo img {
+  background: transparent !important;
+  mix-blend-mode: screen;
   height: 60px;
   width: auto;
   object-fit: contain;
@@ -1063,12 +1067,14 @@ footer {
 }
 
 .footer-contact-item {
+  color: #f4fff7 !important;
+  font-size: 0.95rem;
+  line-height: 1.8;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  color: rgba(255,255,255,0.75);
-  font-size: 0.92rem;
+  color: #f4fff7;
   font-weight: 500;
   transition: color var(--transition);
 }
@@ -1101,6 +1107,8 @@ footer {
   transform: translateY(-3px);
   box-shadow: 0 6px 18px rgba(201,162,39,0.4);
 }
+
+.footer-brand-name, .footer-address, .site-address-footer { color: #f4fff7; }
 
 .footer-copy {
   font-size: 0.78rem;

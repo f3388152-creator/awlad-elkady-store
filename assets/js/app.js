@@ -361,7 +361,9 @@ window.openQuickView = function(product) {
   document.getElementById('qv-spec').textContent = [product.material && `الخامة: ${product.material}`, product.size && `المقاس: ${product.size}`].filter(Boolean).join(' · ');
   document.getElementById('qv-desc').textContent = product.description || 'لا يوجد وصف متاح.';
   document.getElementById('qv-stock').textContent = Number(product.stock) > 0 ? 'متوفر' : 'غير متوفر';
-  document.getElementById('qv-price-new').textContent = Number(product.sale_price || product.price || 0).toLocaleString('ar-EG');
+  const basePrice = Number(product.price || 0);
+  const salePrice = Number(product.sale_price || 0);
+  document.getElementById('qv-price-new').textContent = Number(hasDiscount ? salePrice : basePrice).toLocaleString('ar-EG');
 
   const oldPriceEl = document.getElementById('qv-price-old');
   const badgeEl = document.getElementById('qv-badge');
