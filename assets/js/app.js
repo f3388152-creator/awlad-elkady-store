@@ -625,7 +625,12 @@ async function submitComplaint(e) {
 /* ─────────────────────────────────────────
    TESTIMONIALS SLIDER
 ───────────────────────────────────────── */
-const TESTIMONIALS = [];
+// بيانات تجريبية للعرض فقط وليست تقييمات حقيقية من عملاء.
+const TESTIMONIALS = [
+  { name: 'عميلة تجريبية', letter: 'ع', city: 'تجربة توضيحية — القاهرة', stars: 5, text: 'المنتج وصل بحالة ممتازة والتغليف كان مرتب.' },
+  { name: 'عميل تجريبي', letter: 'م', city: 'تجربة توضيحية — الجيزة', stars: 5, text: 'التشكيلة متنوعة والأسعار واضحة على الموقع.' },
+  { name: 'عميلة تجريبية', letter: 'س', city: 'تجربة توضيحية — أسوان', stars: 4, text: 'تجربة عرض تجريبية توضح شكل آراء العملاء بعد الشراء.' }
+];
 
 function renderTestimonials() {
   const track = Dom.sliderTrack;
