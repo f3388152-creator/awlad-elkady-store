@@ -604,6 +604,12 @@ ul, ol { list-style: none; }
   padding: 1rem;
 }
 #checkout-modal.open { display: flex; }
+#quickview-modal { display: none; position: fixed; inset: 0; z-index: 2000; align-items: center; justify-content: center; padding: 1rem; }
+#quickview-modal.open { display: flex; }
+.qv-stock { color: var(--clr-success); font-weight: 700; margin-bottom: .5rem; }
+.contact-info { grid-column: 1 / -1; text-align: center; padding: 1rem; }
+.footer-brand-name { flex-basis: 100%; font-size: 1.05rem; font-weight: 800; }
+.footer-address, .site-address-footer { display: block; flex-basis: 100%; font-size: .8rem; opacity: .8; }
 
 /* ─── MODAL GLOBAL STYLES ─── */
 .modal-backdrop {
@@ -1350,6 +1356,10 @@ footer {
   opacity: 0;
   transform: translateY(28px);
   transition: opacity 0.6s ease, transform 0.6s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .reveal { opacity: 1; transform: none; }
 }
 .reveal.visible {
   opacity: 1;

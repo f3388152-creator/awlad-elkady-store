@@ -96,6 +96,14 @@ function applySiteSettings(settings) {
     const el = document.querySelector(selector);
     if (el && value != null) el.textContent = String(value);
   };
+  const phone = settings.footer_phone || settings.whatsapp_number;
+  if (phone) {
+    document.querySelectorAll('a[href^="tel:"]').forEach(el => { el.href = `tel:${phone}`; });
+    document.querySelectorAll('a[href*="wa.me"]').forEach(el => { el.href = `https://wa.me/${String(phone).replace(/^0/, '20')}`; });
+  }
+  setText('.site-brand-name', settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية');
+  setText('.footer-brand-name', settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية');
+  setText('.contact-info p:first-of-type', settings.address);
   const setAttr = (selector, attr, value) => {
     const el = document.querySelector(selector);
     if (el && value) el.setAttribute(attr, String(value));
@@ -173,7 +181,12 @@ const CATALOG_PRODUCTS = [
   {name:'طقم أطباق بورسلين فاخر',price:11000,sale_price:6000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_22.jpeg'}]},
   {name:'طقم تقديم للمناسبات',price:12000,sale_price:6500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_23.jpeg'}]},
   {name:'طقم سفرة فاخر متكامل',price:13000,sale_price:7000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_24.png'}]}
-];
+  ];
+
+  // أسعار العرض المعتمدة فقط هي التي تعرض Badge والسعر القديم.
+  CATALOG_PRODUCTS.forEach((product, index) => {
+    if (![0, 2, 4, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25].includes(index)) delete product.sale_price;
+  });
 
 async function loadProducts() {
   if (!Dom.productGrid) return;
@@ -216,7 +229,7 @@ function renderProducts(products) {
   }
 
   Dom.productGrid.innerHTML = products.map((p, idx) => {
-    const hasDiscount = p.price && p.price > (p.sale_price || p.price);
+    const hasDiscount = Number(p.sale_price) > 0 && Number(p.price) > Number(p.sale_price);
     const discountPct = hasDiscount
       ? Math.round((1 - (p.sale_price / p.price)) * 100)
       : 0;
@@ -337,14 +350,17 @@ window.openQuickView = function(product) {
   const modal = document.getElementById('quickview-modal');
   if (!modal) return;
 
-  const hasDiscount = product.price && product.price > (product.sale_price || product.price);
+  const hasDiscount = Number(product.sale_price) > 0 && Number(product.price) > Number(product.sale_price);
   const discountPct = hasDiscount ? Math.round((1 - (product.sale_price / product.price)) * 100) : 0;
 
-  document.getElementById('qv-img').src = (product.images && product.images[0]) ? product.images[0].url : 'assets/images/placeholder.webp';
+  const image = (product.images && product.images[0]) ? (product.images[0].url || product.images[0]) : 'assets/images/logo.png';
+  document.getElementById('qv-img').src = image;
+  document.getElementById('qv-img').alt = product.name || 'صورة المنتج';
   document.getElementById('qv-product-name').textContent = product.name;
   document.getElementById('qv-cat').textContent = product.category || '';
-  document.getElementById('qv-spec').textContent = product.description || '';
+  document.getElementById('qv-spec').textContent = [product.material && `الخامة: ${product.material}`, product.size && `المقاس: ${product.size}`].filter(Boolean).join(' · ');
   document.getElementById('qv-desc').textContent = product.description || 'لا يوجد وصف متاح.';
+  document.getElementById('qv-stock').textContent = Number(product.stock) > 0 ? 'متوفر' : 'غير متوفر';
   document.getElementById('qv-price-new').textContent = Number(product.sale_price || product.price || 0).toLocaleString('ar-EG');
 
   const oldPriceEl = document.getElementById('qv-price-old');
