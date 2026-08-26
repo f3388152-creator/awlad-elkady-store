@@ -75,14 +75,14 @@ function updateCartCount() {
 
 function addToCart(product, quantity = 1) {
   if (!product?.id || Number(product.stock || 0) < 1) {
-    alert('المنتج غير متوفر حالياً.');
+    alert('المنتج غير متاح حالياً. اختار منتجاً آخر أو حاول لاحقاً.');
     return false;
   }
   const existing = state.cart.find(item => String(item.id) === String(product.id));
   const nextQty = Number(existing?.qty || 0) + Number(quantity || 1);
   const maxStock = Math.max(1, Number(product.stock || existing?.stock || 1));
   if (nextQty > maxStock) {
-    alert(`المتاح حالياً ${maxStock} قطعة فقط.`);
+    alert('الكمية المطلوبة غير متاحة حالياً. قلل الكمية أو اختار منتجاً آخر.');
     return false;
   }
   if (existing) Object.assign(existing, snapshotProduct(product), { qty: nextQty });
@@ -104,7 +104,7 @@ function changeCartQty(productId, delta) {
   const next = Number(item.qty || 1) + Number(delta || 0);
   const maxStock = Math.max(1, Number(item.stock || 1));
   if (next <= 0) return removeFromCart(productId);
-  if (next > maxStock) return alert(`المتاح حالياً ${maxStock} قطعة فقط.`);
+  if (next > maxStock) return alert('الكمية المطلوبة غير متاحة حالياً. قلل الكمية أو اختار منتجاً آخر.');
   item.qty = next;
   saveCart();
   renderCart();
