@@ -563,10 +563,25 @@ window.orderFromQV = function() {
 /* ─────────────────────────────────────────
    CHECKOUT MODAL
 ───────────────────────────────────────── */
+function resetCheckoutView() {
+  $('checkout-success')?.remove();
+  const form = $('order-form');
+  if (form) {
+    form.hidden = false;
+    Dom.orderForm = form;
+    Dom.confirmBtn = $('btn-confirm');
+  }
+  $('checkout-items')?.removeAttribute('hidden');
+  $('checkout-title')?.removeAttribute('hidden');
+  const preview = $('modal-preview');
+  if (preview) preview.hidden = true;
+}
+
 function openCheckout(product) {
   if (product && !state.cart.some(item => String(item.id) === String(product.id))) {
     if (!addToCart(product)) return;
   }
+  resetCheckoutView();
   state.selectedProduct = product || state.cart[0] || null;
   renderCheckoutItems();
   if (Dom.orderForm) Dom.orderForm.reset();
@@ -658,16 +673,26 @@ async function submitOrder(e) {
     const shippingMessage = bostaResult?.tracking_number || bostaResult?.delivery_id
       ? `تم تأكيد الشحنة مع Bosta. رقم التتبع: <strong dir="ltr">${escapeHtml(bostaResult.tracking_number || bostaResult.delivery_id)}</strong>.`
       : 'تم استلام الطلب، لكن لم يتم تأكيد بوليصة Bosta تلقائياً. الإدارة ستراجع الشحنة قبل التسليم.';
-    const modalBox = document.querySelector('#checkout-modal .modal-box');
-    if (modalBox) {
-      modalBox.innerHTML = `
-        <button type="button" class="modal-close" onclick="closeCheckout()" title="إغلاق">✕</button>
-        <div class="success-state">
-          <div class="success-icon">✓</div>
-          <h3>تم استلام طلبك!</h3>
-          <p>شكراً <strong>${escapeHtml(name)}</strong>، رقم طلبك <strong>#${escapeHtml(orderId)}</strong>.<br>الدفع عند الاستلام. ${shippingMessage}</p>
-          <button type="button" onclick="closeCheckout()" style="margin-top:1rem;padding:0.7rem 2rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;border:none">رائع! شكراً</button>
-        </div>`;
+    const form = $('order-form');
+    const checkoutItems = $('checkout-items');
+    const checkoutTitle = $('checkout-title');
+    const preview = $('modal-preview');
+    const content = $('modal-content');
+    if (form) form.hidden = true;
+    if (checkoutItems) checkoutItems.setAttribute('hidden', '');
+    if (checkoutTitle) checkoutTitle.setAttribute('hidden', '');
+    if (preview) preview.hidden = true;
+    if (content) {
+      $('checkout-success')?.remove();
+      const success = document.createElement('div');
+      success.id = 'checkout-success';
+      success.className = 'success-state';
+      success.innerHTML = `
+        <div class="success-icon">✓</div>
+        <h3>تم استلام طلبك!</h3>
+        <p>شكراً <strong>${escapeHtml(name)}</strong>، رقم طلبك <strong>#${escapeHtml(orderId)}</strong>.<br>الدفع عند الاستلام. ${shippingMessage}</p>
+        <button type="button" onclick="closeCheckout()" style="margin-top:1rem;padding:0.7rem 2rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;border:none">رائع! شكراً</button>`;
+      content.appendChild(success);
     }
   } catch (err) {
     console.error('[order submit]', err);
