@@ -329,14 +329,44 @@ function applyMarqueeTimer(settings) {
    PRODUCTS — Load from Supabase
 ───────────────────────────────────────── */
 /* لا يوجد كتالوج ثابت هنا: قاعدة البيانات هي المصدر الوحيد للمنتجات. */
+function attachProductCategories(products, categories, links) {
+  const namesById = new Map((Array.isArray(categories) ? categories : []).map(category => [Number(category.id), category.name || '']));
+  const idsByProduct = new Map();
+  (Array.isArray(links) ? links : []).forEach(link => {
+    const productId = Number(link.product_id);
+    const categoryId = Number(link.category_id);
+    if (!Number.isInteger(productId) || !Number.isInteger(categoryId)) return;
+    if (!idsByProduct.has(productId)) idsByProduct.set(productId, []);
+    idsByProduct.get(productId).push(categoryId);
+  });
+  return (Array.isArray(products) ? products : []).map(product => {
+    const categoryIds = idsByProduct.get(Number(product.id)) || [];
+    const categoryNames = categoryIds.map(id => namesById.get(id)).filter(Boolean);
+    return {
+      ...product,
+      category_ids: categoryIds,
+      category_names: categoryNames,
+      category: categoryNames.join('، ') || product.category || ''
+    };
+  });
+}
+
 async function loadProducts({ preserveModal = true } = {}) {
   if (!Dom.productGrid) return [];
   try {
-    const fresh = await Promise.race([
-      Supabase.select(TABLES.products, 'is_active=eq.true&order=created_at.desc'),
+    const [productsResult, categoriesResult, linksResult] = await Promise.race([
+      Promise.allSettled([
+        Supabase.select(TABLES.products, 'is_active=eq.true&order=created_at.desc'),
+        Supabase.select(TABLES.categories, 'is_visible=eq.true&order=sort_order.asc,created_at.asc'),
+        Supabase.select(TABLES.product_categories)
+      ]),
       new Promise((_, reject) => setTimeout(() => reject(new Error('PRODUCTS_TIMEOUT')), 8000))
     ]);
-    state.products = Array.isArray(fresh) ? fresh : [];
+    if (productsResult.status !== 'fulfilled') throw productsResult.reason || new Error('PRODUCTS_LOAD_FAILED');
+    const fresh = Array.isArray(productsResult.value) ? productsResult.value : [];
+    const categories = categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];
+    const links = linksResult.status === 'fulfilled' ? linksResult.value : [];
+    state.products = attachProductCategories(fresh, categories, links);
     state.filteredProducts = state.products;
     if (!preserveModal || !document.querySelector('#checkout-modal.open, #quickview-modal.open')) {
       renderProducts(state.products);
@@ -996,7 +1026,7 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ─── Live CMS synchronization ─── */
 
 function initRealtimeSync() {
-  const tables = [TABLES.products, TABLES.categories, TABLES.site_settings, TABLES.faqs, TABLES.socials].filter(Boolean);
+  const tables = [TABLES.products, TABLES.categories, TABLES.product_categories, TABLES.site_settings, TABLES.faqs, TABLES.socials].filter(Boolean);
   let refreshTimer = null;
   const refresh = () => {
     clearTimeout(refreshTimer);
