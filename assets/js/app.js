@@ -16,6 +16,8 @@
    STATE
 ───────────────────────────────────────── */
 const CART_KEY = 'awlad_elkady_cart_v1';
+let bostaLocationsPromise = null;
+let bostaLocationRows = [];
 
 function readCart() {
   try {
@@ -555,10 +557,11 @@ async function submitOrder(e) {
   const name    = $('cust-name')?.value?.trim();
   const phone   = $('cust-phone')?.value?.trim();
   const gov     = $('gov-select')?.value;
+  const area    = $('area-select')?.value?.trim();
   const address = $('cust-address')?.value?.trim();
 
   const phonePattern = /^01[0125]\d{8}$/;
-  if (!name || name.length < 2 || name.length > 120 || !phonePattern.test(phone) || !gov || address.length < 5 || address.length > 300) {
+  if (!name || name.length < 2 || name.length > 120 || !phonePattern.test(phone) || !gov || !area || address.length < 5 || address.length > 300) {
     alert('راجع الاسم ورقم الموبايل والمحافظة والعنوان؛ البيانات غير صحيحة.');
     return;
   }
@@ -571,7 +574,7 @@ async function submitOrder(e) {
   btn.innerHTML = `<div class="spinner" style="width:22px;height:22px;border-width:3px;margin:0"></div> جاري الإرسال…`;
 
   const subtotal = cartSubtotal();
-  const bostaSize = state.cart.map(item => item.bosta_size).find(Boolean) || '';
+  const bostaSize = state.cart.map(item => Number(item.bosta_size) || 0).reduce((max, value) => Math.max(max, value), 0) || 140;
   const shippingFee = calculateShipping(gov, bostaSize, subtotal);
   const total = subtotal + shippingFee;
 
@@ -595,7 +598,7 @@ async function submitOrder(e) {
       customer_name: name,
       customer_phone: phone,
       governorate: gov,
-      area: null,
+      area,
       address,
       subtotal,
       shipping_fee: shippingFee,
@@ -615,18 +618,27 @@ async function submitOrder(e) {
     state.cart = [];
     saveCart();
 
-    const modalBox = document.querySelector('.modal-box');
+    let bostaResult = null;
+    try {
+      bostaResult = await queueBostaCreation(orderId, accessToken);
+    } catch (bostaError) {
+      console.error('[bosta create]', bostaError);
+    }
+
+    const shippingMessage = bostaResult?.tracking_number || bostaResult?.delivery_id
+      ? `تم تأكيد الشحنة مع Bosta. رقم التتبع: <strong dir="ltr">${escapeHtml(bostaResult.tracking_number || bostaResult.delivery_id)}</strong>.`
+      : 'تم استلام الطلب، لكن لم يتم تأكيد بوليصة Bosta تلقائياً. الإدارة ستراجع الشحنة قبل التسليم.';
+    const modalBox = document.querySelector('#checkout-modal .modal-box');
     if (modalBox) {
       modalBox.innerHTML = `
         <button type="button" class="modal-close" onclick="closeCheckout()" title="إغلاق">✕</button>
         <div class="success-state">
           <div class="success-icon">✓</div>
           <h3>تم استلام طلبك!</h3>
-          <p>شكراً <strong>${escapeHtml(name)}</strong>، رقم طلبك <strong>#${escapeHtml(orderId)}</strong>.<br>الدفع عند الاستلام. سيتم تجهيز الشحنة والتواصل معك قريباً.</p>
+          <p>شكراً <strong>${escapeHtml(name)}</strong>، رقم طلبك <strong>#${escapeHtml(orderId)}</strong>.<br>الدفع عند الاستلام. ${shippingMessage}</p>
           <button type="button" onclick="closeCheckout()" style="margin-top:1rem;padding:0.7rem 2rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;border:none">رائع! شكراً</button>
         </div>`;
     }
-    queueBostaCreation(orderId, accessToken);
   } catch (err) {
     console.error('[order submit]', err);
     btn.disabled = false;
@@ -638,17 +650,21 @@ async function submitOrder(e) {
 }
 
 async function queueBostaCreation(orderId, accessToken) {
-  if (!ADMIN_BACKEND_URL || !orderId || !accessToken) return;
-  try {
-    await fetch(`${ADMIN_BACKEND_URL}/api/bosta-create-delivery`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'omit',
-      body: JSON.stringify({ order_id: orderId, access_token: accessToken })
-    });
-  } catch (err) {
-    console.warn('[bosta create]', err);
+  if (!ADMIN_BACKEND_URL || !orderId || !accessToken) throw new Error('BOSTA_BACKEND_NOT_CONFIGURED');
+  const response = await fetch(`${ADMIN_BACKEND_URL}/api/bosta-create-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ order_id: orderId, access_token: accessToken })
+  });
+  let details = {};
+  try { details = await response.json(); } catch (_) { /* keep empty response */ }
+  if (!response.ok || !details.ok || (!details.tracking_number && !details.delivery_id)) {
+    const error = new Error(details.error || 'BOSTA_CREATE_FAILED');
+    error.status = response.status;
+    throw error;
   }
+  return details;
 }
 
 /* ─────────────────────────────────────────
@@ -847,13 +863,46 @@ function initReveal() {
 }
 
 /* ─────────────────────────────────────────
-   POPULATE GOVERNORATES SELECT
+   POPULATE GOVERNORATES / BOSTA DISTRICTS
 ───────────────────────────────────────── */
+function normalizePlace(value) {
+  return String(value || '').trim().toLowerCase()
+    .normalize('NFKD').replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ');
+}
+
 function populateGovSelect() {
   if (!Dom.govSelect) return;
   Dom.govSelect.innerHTML =
     `<option value="">اختر المحافظة</option>` +
-    EGYPT_GOVS.map(g => `<option value="${g}">${g}</option>`).join('');
+    EGYPT_GOVS.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+}
+
+function populateAreaSelect() {
+  const areaSelect = document.getElementById('area-select');
+  const help = document.getElementById('area-help');
+  if (!areaSelect || !Dom.govSelect) return;
+  const governorate = normalizePlace(Dom.govSelect.value);
+  const rows = bostaLocationRows.filter(row => [row.cityName, row.cityOtherName].some(value => normalizePlace(value) === governorate));
+  areaSelect.innerHTML = rows.length
+    ? `<option value="">اختر المنطقة / الحي</option>` + rows.map(row => `<option value="${escapeHtml(row.districtOtherName || row.districtName)}" data-district-id="${escapeHtml(row.districtId)}">${escapeHtml(row.districtOtherName || row.districtName)}</option>`).join('')
+    : `<option value="">${governorate ? 'المحافظة غير متاحة للشحن حالياً' : 'اختار المحافظة الأول'}</option>`;
+  areaSelect.disabled = !rows.length;
+  if (help) help.textContent = rows.length ? 'اختار المنطقة كما هي ظاهرة في قائمة Bosta.' : 'لازم نختار منطقة مدعومة قبل تأكيد الطلب.';
+}
+
+async function loadBostaLocations() {
+  const areaSelect = document.getElementById('area-select');
+  const help = document.getElementById('area-help');
+  if (!ADMIN_BACKEND_URL || !areaSelect) return [];
+  if (!bostaLocationsPromise) {
+    bostaLocationsPromise = fetch(`${ADMIN_BACKEND_URL}/api/bosta-locations`, { credentials: 'omit' })
+      .then(response => { if (!response.ok) throw new Error('BOSTA_LOCATIONS_FAILED'); return response.json(); })
+      .then(rows => { bostaLocationRows = Array.isArray(rows) ? rows : []; populateAreaSelect(); return bostaLocationRows; })
+      .catch(error => { console.error('[bosta locations]', error); bostaLocationRows = []; areaSelect.disabled = true; if (help) help.textContent = 'تعذر تحميل مناطق الشحن؛ حاول تحديث الصفحة.'; return []; });
+  }
+  return bostaLocationsPromise;
 }
 
 /* ─────────────────────────────────────────
@@ -922,6 +971,9 @@ document.addEventListener('DOMContentLoaded', () => {
   updateCartCount();
   renderCart();
   populateGovSelect();
+  document.getElementById('area-select')?.addEventListener('change', () => {});
+  Dom.govSelect?.addEventListener('change', () => { populateAreaSelect(); });
+  loadBostaLocations();
   loadSettings();
   Supabase.select(TABLES.shipping_rates).then(rates => { window.liveShippingRates = rates || []; }).catch(console.error);
   loadProducts({ preserveModal: false });

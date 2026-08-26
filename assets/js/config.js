@@ -44,8 +44,17 @@ function calculateShipping(governorate, bostaSizeParam, subtotal = 0) {
   if (settings.shipping_custom === true) {
     return settings.shipping_type === 'free' ? 0 : Number(settings.shipping_flat_rate) || 0;
   }
-  const rateItem = window.liveShippingRates.find(r => r.governorate === governorate);
-  const baseRate = rateItem ? parseFloat(rateItem.base_fee) : 55;
-  const extraSizeFee = parseFloat(bostaSizeParam) || 0;
-  return baseRate + extraSizeFee;
+
+  const sizeClassByFee = {
+    140: 'small_medium', 145: 'large_l', 150: 'xl', 155: 'xxl', 240: 'large_shipment', 994: 'huge_shipment'
+  };
+  const numericSize = Number(bostaSizeParam);
+  const sizeClass = sizeClassByFee[numericSize] || '';
+  const rateItem = window.liveShippingRates.find(rate =>
+    String(rate.governorate || '') === String(governorate || '') &&
+    (!sizeClass || String(rate.size_class || '') === sizeClass)
+  );
+  // لا نجمع bosta_size فوق base_fee؛ قيمة bosta_size نفسها تمثل فئة السعر.
+  // لو جدول الأسعار غير مكتمل نستخدم التقدير القديم مؤقتاً، ولا ندّعي أنه سعر Bosta نهائي.
+  return rateItem ? Number(rateItem.base_fee) || 0 : 55;
 }
