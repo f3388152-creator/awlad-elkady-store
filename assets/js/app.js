@@ -563,8 +563,62 @@ window.orderFromQV = function() {
 /* ─────────────────────────────────────────
    CHECKOUT MODAL
 ───────────────────────────────────────── */
+function clearOrderErrorState() {
+  const box = $('order-error');
+  if (box) {
+    box.hidden = true;
+    box.innerHTML = '';
+  }
+  ['cust-name', 'cust-phone', 'gov-select', 'area-select', 'cust-address'].forEach(id => {
+    const field = $(id);
+    if (field) field.removeAttribute('aria-invalid');
+  });
+}
+
+function showOrderError(title, issues = []) {
+  const box = $('order-error');
+  if (!box) return;
+  clearOrderErrorState();
+  const rows = issues.map(issue => `
+    <li>
+      <strong>${escapeHtml(issue.label || 'الطلب')}:</strong>
+      ${escapeHtml(issue.problem || 'راجع البيانات المدخلة.')}<br>
+      <span class="order-error-solution">الحل: ${escapeHtml(issue.solution || 'راجع القيمة وحاول مرة أخرى.')}</span>
+    </li>`).join('');
+  box.innerHTML = `<strong class="order-error-title">${escapeHtml(title)}</strong>${rows ? `<ul>${rows}</ul>` : ''}`;
+  box.hidden = false;
+  issues.forEach(issue => { if (issue.id) $(issue.id)?.setAttribute('aria-invalid', 'true'); });
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function getOrderValidationIssues({ name, phone, gov, area, address }) {
+  const issues = [];
+  if (!name) issues.push({ id: 'cust-name', label: 'الاسم الكامل', problem: 'الاسم مش مكتوب.', solution: 'اكتب اسمك بالكامل.' });
+  else if (name.length < 2 || name.length > 120) issues.push({ id: 'cust-name', label: 'الاسم الكامل', problem: 'الاسم قصير جداً أو طويل بشكل غير صحيح.', solution: 'اكتب اسماً من حرفين إلى 120 حرفاً.' });
+  if (!phone) issues.push({ id: 'cust-phone', label: 'رقم الموبايل', problem: 'رقم الموبايل ناقص.', solution: 'اكتب رقم مصري من 11 رقماً يبدأ بـ 010 أو 011 أو 012 أو 015.' });
+  else if (!/^01[0125]\d{8}$/.test(phone)) issues.push({ id: 'cust-phone', label: 'رقم الموبايل', problem: 'صيغة الرقم غير صحيحة.', solution: 'اكتب الرقم 11 رقماً بدون مسافات، مثال: 01012345678.' });
+  if (!gov) issues.push({ id: 'gov-select', label: 'المحافظة', problem: 'لم يتم اختيار المحافظة.', solution: 'اختار المحافظة من القائمة.' });
+  if (!area) {
+    const areaSelect = $('area-select');
+    issues.push({ id: 'area-select', label: 'المنطقة / الحي', problem: areaSelect?.disabled && gov ? 'مناطق الشحن لم تحمل أو المحافظة غير مدعومة حالياً.' : 'لم يتم اختيار المنطقة / الحي.', solution: areaSelect?.disabled && gov ? 'حدّث الصفحة وتأكد من اتصال الإنترنت، ثم اختار منطقة مدعومة.' : 'اختار المنطقة بعد اختيار المحافظة.' });
+  }
+  if (!address) issues.push({ id: 'cust-address', label: 'العنوان التفصيلي', problem: 'العنوان ناقص.', solution: 'اكتب عنواناً تفصيلياً لا يقل عن 5 حروف.' });
+  else if (address.length < 5 || address.length > 300) issues.push({ id: 'cust-address', label: 'العنوان التفصيلي', problem: 'طول العنوان غير صحيح.', solution: 'اكتب عنواناً من 5 إلى 300 حرف.' });
+  return issues;
+}
+
+function orderSendErrorDetails(error) {
+  const raw = String(error?.message || error || '');
+  if (raw === 'PRODUCT_PRICE_CHANGED') return { title: 'السعر اتغير قبل تأكيد الطلب', issues: [{ label: 'المنتج', problem: 'السعر الموجود في السلة لم يعد هو السعر الحالي.', solution: 'افتح السلة وراجع السعر الجديد ثم أكد الطلب مرة أخرى.' }] };
+  if (raw === 'PRODUCT_UNAVAILABLE') return { title: 'المنتج لم يعد متاحاً', issues: [{ label: 'المنتج أو الكمية', problem: 'المنتج اتوقف أو الكمية المطلوبة أكبر من المخزون.', solution: 'راجع السلة وقلل الكمية أو احذف المنتج غير المتاح.' }] };
+  if (/Failed to fetch|NetworkError|Network request failed/i.test(raw)) return { title: 'مشكلة في الاتصال', issues: [{ label: 'الاتصال بالمتجر', problem: 'تعذر الوصول لخدمة الطلب حالياً.', solution: 'تأكد من الإنترنت، عطّل أي VPN إن وجد، ثم أعد المحاولة.' }] };
+  if (/BOSTA|bosta/i.test(raw)) return { title: 'تعذر تجهيز الشحن', issues: [{ label: 'بيانات الشحن', problem: 'تم رفض تجهيز الشحنة أو لم تكتمل بيانات الشحن.', solution: 'راجع المحافظة والمنطقة والعنوان، وإذا استمرت المشكلة تواصل مع المعرض.' }] };
+  return { title: 'تعذر تسجيل الطلب', issues: [{ label: 'إرسال الطلب', problem: 'الخدمة لم تؤكد حفظ الطلب في الوقت الحالي.', solution: 'لا تضغط عدة مرات؛ راجع البيانات واتصال الإنترنت وحاول بعد لحظات.' }] };
+}
+
 function resetCheckoutView() {
   $('checkout-success')?.remove();
+  clearOrderErrorState();
   const form = $('order-form');
   if (form) {
     form.hidden = false;
@@ -599,22 +653,24 @@ async function submitOrder(e) {
   const btn = Dom.confirmBtn;
   if (!btn) return;
 
-  const name    = $('cust-name')?.value?.trim();
-  const phone   = $('cust-phone')?.value?.trim();
-  const gov     = $('gov-select')?.value;
-  const area    = $('area-select')?.value?.trim();
-  const address = $('cust-address')?.value?.trim();
+  const name    = $('cust-name')?.value?.trim() || '';
+  const phone   = $('cust-phone')?.value?.trim() || '';
+  const gov     = $('gov-select')?.value || '';
+  const area    = $('area-select')?.value?.trim() || '';
+  const address = $('cust-address')?.value?.trim() || '';
 
-  const phonePattern = /^01[0125]\d{8}$/;
-  if (!name || name.length < 2 || name.length > 120 || !phonePattern.test(phone) || !gov || !area || address.length < 5 || address.length > 300) {
-    alert('راجع الاسم ورقم الموبايل والمحافظة والعنوان؛ البيانات غير صحيحة.');
+  clearOrderErrorState();
+  const validationIssues = getOrderValidationIssues({ name, phone, gov, area, address });
+  if (validationIssues.length) {
+    showOrderError('راجع الحقول المحددة قبل تأكيد الطلب', validationIssues);
     return;
   }
   if (!state.cart.length) {
-    alert('السلة فاضية أو المنتج لم يعد متاحاً.');
+    showOrderError('السلة فاضية', [{ label: 'المنتجات', problem: 'مفيش منتج جاهز للإرسال حالياً.', solution: 'ارجع للمنتجات وأضف المنتج للسلة ثم افتح الطلب من جديد.' }]);
     return;
   }
 
+  const originalButtonMarkup = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = `<div class="spinner" style="width:22px;height:22px;border-width:3px;margin:0"></div> جاري الإرسال…`;
 
@@ -659,6 +715,7 @@ async function submitOrder(e) {
     };
     const orderResult = await Supabase.rpc('create_order_with_stock_bulk', { p_order: orderPayload });
     const orderId = orderResult?.order_id || orderResult?.id || orderResult;
+    if (!orderId) throw new Error('ORDER_RESPONSE_INVALID');
     const accessToken = orderResult?.access_token || '';
     state.cart = [];
     saveCart();
@@ -697,10 +754,9 @@ async function submitOrder(e) {
   } catch (err) {
     console.error('[order submit]', err);
     btn.disabled = false;
-    btn.innerHTML = '✓ تأكيد الطلب';
-    if (err.message === 'PRODUCT_PRICE_CHANGED') alert('سعر منتج اتحدث. السلة محفوظة؛ راجعها وحاول مرة أخرى.');
-    else if (err.message === 'PRODUCT_UNAVAILABLE') alert('منتج في السلة لم يعد متاحاً أو الكمية غير كافية. السلة محفوظة.');
-    else alert('حدث خطأ أثناء إرسال الطلب. يرجى المحاولة مرة أخرى.');
+    btn.innerHTML = originalButtonMarkup;
+    const details = orderSendErrorDetails(err);
+    showOrderError(details.title, details.issues);
   }
 }
 

@@ -1523,3 +1523,34 @@ footer {
   .hero-logo-img { width: 320px; }
   .product-grid { gap: 1.25rem; }
 }
+
+/* ─── ORDER ERROR GUIDANCE ─── */
+.order-error {
+  margin: 0 0 1rem;
+  padding: .85rem 1rem;
+  border: 1px solid rgba(192, 57, 43, .2);
+  border-right: 4px solid var(--clr-danger);
+  border-radius: var(--radius-md);
+  background: #fff8f7;
+  color: var(--clr-text);
+  font-size: .86rem;
+  line-height: 1.7;
+}
+.order-error[hidden] { display: none; }
+.order-error-title {
+  display: block;
+  color: var(--clr-danger);
+  margin-bottom: .25rem;
+}
+.order-error ul {
+  margin: .35rem 0 0;
+  padding-right: 1.15rem;
+}
+.order-error li + li { margin-top: .35rem; }
+.order-error-solution { color: var(--clr-primary); }
+.form-group input[aria-invalid="true"],
+.form-group select[aria-invalid="true"] {
+  border-color: var(--clr-danger);
+  background: #fffafa;
+  box-shadow: 0 0 0 3px rgba(192, 57, 43, .08);
+}
