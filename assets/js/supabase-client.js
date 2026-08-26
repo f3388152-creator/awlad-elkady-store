@@ -39,8 +39,17 @@ const Supabase = {
     const res = await fetch(`${this.url}/rest/v1/rpc/${fn}`, {
       method: 'POST', headers: this.headers, body: JSON.stringify(params)
     });
-    if (!res.ok) throw new Error(`[Supabase rpc:${fn}] ${await res.text()}`);
     const text = await res.text();
+    if (!res.ok) {
+      let parsed = {};
+      try { parsed = text ? JSON.parse(text) : {}; } catch (_) { /* keep text */ }
+      const error = new Error(`[Supabase rpc:${fn}] ${text || `HTTP ${res.status}`}`);
+      error.code = parsed.code || '';
+      error.details = parsed.details || '';
+      error.hint = parsed.hint || '';
+      error.status = res.status;
+      throw error;
+    }
     return text ? JSON.parse(text) : null;
   },
 
@@ -55,8 +64,15 @@ const Supabase = {
       headers: this.headers
     });
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`[Supabase select:${table}] ${err}`);
+      const errText = await res.text();
+      let parsed = {};
+      try { parsed = errText ? JSON.parse(errText) : {}; } catch (_) { /* keep text */ }
+      const error = new Error(`[Supabase select:${table}] ${errText || `HTTP ${res.status}`}`);
+      error.code = parsed.code || '';
+      error.details = parsed.details || '';
+      error.hint = parsed.hint || '';
+      error.status = res.status;
+      throw error;
     }
     return res.json();
   },

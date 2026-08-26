@@ -591,6 +591,21 @@ function showOrderError(title, issues = []) {
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+function normalizePhoneInput(value = '') {
+  const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+  const easternDigits = '۰۱۲۳۴۵۶۷۸۹';
+  let normalized = String(value)
+    .split('').map(char => {
+      const arabicIndex = arabicDigits.indexOf(char);
+      if (arabicIndex >= 0) return String(arabicIndex);
+      const easternIndex = easternDigits.indexOf(char);
+      return easternIndex >= 0 ? String(easternIndex) : char;
+    }).join('')
+    .replace(/[\s()\-]/g, '');
+  if (/^20(10|11|12|15)\d{8}$/.test(normalized)) normalized = `0${normalized.slice(2)}`;
+  return normalized;
+}
+
 function getOrderValidationIssues({ name, phone, gov, area, address }) {
   const issues = [];
   if (!name) issues.push({ id: 'cust-name', label: 'الاسم الكامل', problem: 'الاسم مش مكتوب.', solution: 'اكتب اسمك بالكامل.' });
@@ -609,11 +624,21 @@ function getOrderValidationIssues({ name, phone, gov, area, address }) {
 
 function orderSendErrorDetails(error) {
   const raw = String(error?.message || error || '');
+  const code = String(error?.code || '');
+  const context = `${code} ${raw} ${String(error?.details || '')}`;
   if (raw === 'PRODUCT_PRICE_CHANGED') return { title: 'السعر اتغير قبل تأكيد الطلب', issues: [{ label: 'المنتج', problem: 'السعر الموجود في السلة لم يعد هو السعر الحالي.', solution: 'افتح السلة وراجع السعر الجديد ثم أكد الطلب مرة أخرى.' }] };
   if (raw === 'PRODUCT_UNAVAILABLE') return { title: 'المنتج لم يعد متاحاً', issues: [{ label: 'المنتج أو الكمية', problem: 'المنتج اتوقف أو الكمية المطلوبة أكبر من المخزون.', solution: 'راجع السلة وقلل الكمية أو احذف المنتج غير المتاح.' }] };
+  if (code === 'P0001' || /invalid order/i.test(context)) return { title: 'بيانات الطلب اترفضت من النظام', issues: [{ label: 'بيانات الطلب', problem: 'الخدمة رفضت بيانات الطلب أو لم تجد منتجاً صالحاً بالسعر والكمية الحاليين.', solution: 'افتح السلة من جديد، راجع السعر والكمية والمحافظة والمنطقة، ثم حاول مرة واحدة.' }] };
+  if (code === '23505') return { title: 'الطلب اتسجل بالفعل', issues: [{ label: 'تكرار الطلب', problem: 'النظام اكتشف محاولة تكرار نفس الطلب.', solution: 'راجع صفحة تتبع الطلب أو تواصل مع المعرض قبل إعادة الإرسال.' }] };
+  if (code === '23502') return { title: 'بيانات أساسية ناقصة في النظام', issues: [{ label: 'حفظ الطلب', problem: 'قاعدة البيانات رفضت الحفظ لأن حقلاً أساسياً لم يصلها.', solution: 'حدّث الصفحة وأعد المحاولة؛ لو استمرت المشكلة تواصل مع المعرض.' }] };
+  if (code === '22P02' || code === '22003') return { title: 'قيمة غير صالحة في الطلب', issues: [{ label: 'السعر أو الكمية', problem: 'النظام لم يستطع قراءة إحدى القيم الرقمية في الطلب.', solution: 'افتح السلة من جديد وتأكد أن السعر والكمية ظاهرين بشكل طبيعي ثم أعد المحاولة.' }] };
+  if (code === '42703' || code === 'PGRST202' || /column .* does not exist|function .* does not exist/i.test(context)) return { title: 'إعدادات الطلب تحتاج تحديثاً', issues: [{ label: 'خدمة الطلب', problem: 'خدمة حفظ الطلب غير متوافقة مع النسخة الحالية من المتجر.', solution: 'لا تعيد الضغط؛ تم تسجيل المشكلة للمراجعة الفنية.' }] };
+  if (code === '42501' || error?.status === 401 || error?.status === 403) return { title: 'تعذر السماح بحفظ الطلب', issues: [{ label: 'خدمة الطلب', problem: 'الاتصال بخدمة الحفظ مرفوض حالياً.', solution: 'لا تكرر الضغط؛ حدّث الصفحة وحاول مرة أخرى، وسيتم مراجعة صلاحية الخدمة إذا استمرت.' }] };
+  if (Number(error?.status) >= 500) return { title: 'خدمة الطلب غير متاحة مؤقتاً', issues: [{ label: 'خدمة الحفظ', problem: 'الخادم لم يستطع إكمال حفظ الطلب الآن.', solution: 'انتظر دقيقة ثم حاول مرة واحدة، وإذا استمرت المشكلة تواصل مع المعرض.' }] };
   if (/Failed to fetch|NetworkError|Network request failed/i.test(raw)) return { title: 'مشكلة في الاتصال', issues: [{ label: 'الاتصال بالمتجر', problem: 'تعذر الوصول لخدمة الطلب حالياً.', solution: 'تأكد من الإنترنت، عطّل أي VPN إن وجد، ثم أعد المحاولة.' }] };
-  if (/BOSTA|bosta/i.test(raw)) return { title: 'تعذر تجهيز الشحن', issues: [{ label: 'بيانات الشحن', problem: 'تم رفض تجهيز الشحنة أو لم تكتمل بيانات الشحن.', solution: 'راجع المحافظة والمنطقة والعنوان، وإذا استمرت المشكلة تواصل مع المعرض.' }] };
-  return { title: 'تعذر تسجيل الطلب', issues: [{ label: 'إرسال الطلب', problem: 'الخدمة لم تؤكد حفظ الطلب في الوقت الحالي.', solution: 'لا تضغط عدة مرات؛ راجع البيانات واتصال الإنترنت وحاول بعد لحظات.' }] };
+  if (/BOSTA|bosta/i.test(context)) return { title: 'تعذر تجهيز الشحن', issues: [{ label: 'بيانات الشحن', problem: 'تم رفض تجهيز الشحنة أو لم تكتمل بيانات الشحن.', solution: 'راجع المحافظة والمنطقة والعنوان، وإذا استمرت المشكلة تواصل مع المعرض.' }] };
+  const responseLabel = code || (error?.status ? `HTTP ${error.status}` : 'رد غير معروف');
+  return { title: 'تعذر تسجيل الطلب', issues: [{ label: 'إرسال الطلب', problem: `خدمة التسجيل رجعت ${responseLabel} ولم تؤكد حفظ الطلب.`, solution: 'لا تضغط عدة مرات؛ احتفظ بالبيانات وتواصل مع المعرض ليتحقق من الطلب قبل إعادة المحاولة.' }] };
 }
 
 function resetCheckoutView() {
@@ -654,7 +679,9 @@ async function submitOrder(e) {
   if (!btn) return;
 
   const name    = $('cust-name')?.value?.trim() || '';
-  const phone   = $('cust-phone')?.value?.trim() || '';
+  const phoneField = $('cust-phone');
+  const phone   = normalizePhoneInput(phoneField?.value || '');
+  if (phoneField && phoneField.value !== phone) phoneField.value = phone;
   const gov     = $('gov-select')?.value || '';
   const area    = $('area-select')?.value?.trim() || '';
   const address = $('cust-address')?.value?.trim() || '';
