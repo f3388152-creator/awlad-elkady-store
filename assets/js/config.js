@@ -9,6 +9,9 @@ const SUPABASE_CONFIG = {
   anonKey: 'sb_publishable_Yt0AMwrH7jstWy2aUuIz5g_aDhQh88j'
 };
 
+// Public backend origin only. Secrets stay in Vercel Environment Variables.
+const ADMIN_BACKEND_URL = 'https://awlad-elkady-admin.vercel.app';
+
 // معرف الجداول في Supabase
 const TABLES = {
   products: 'products',
@@ -17,7 +20,9 @@ const TABLES = {
   product_categories: 'product_categories',
   shipping_rates: 'shipping_rates',
   complaints: 'complaints',
-  site_settings: 'site_settings'
+  site_settings: 'site_settings',
+  faqs: 'faqs',
+  socials: 'socials'
 };
 
 // محافظات مصر ومناطق الشحن (تُستخدم فقط للقائمة المنسدلة الأولية)

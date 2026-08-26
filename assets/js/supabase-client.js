@@ -157,5 +157,28 @@ const Supabase = {
       throw new Error(`[Supabase upload:${bucket}/${fileName}] ${err}`);
     }
     return `${this.url}/storage/v1/object/public/${bucket}/${fileName}`;
+  },
+
+  // Subscribe to CMS changes without exposing privileged credentials.
+  subscribeRealtime(tables = [], onChange = () => {}) {
+    window.landingRealtimeConnected = false;
+    const factory = window.supabase?.createClient;
+    if (typeof factory !== 'function' || !Array.isArray(tables) || !tables.length) return () => {};
+
+    const client = factory(this.url, this.key, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    const channel = client.channel('landing-cms-sync');
+    tables.forEach(table => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange(table));
+    });
+    channel.subscribe(status => {
+      window.landingRealtimeConnected = status === 'SUBSCRIBED';
+    });
+    return () => {
+      window.landingRealtimeConnected = false;
+      client.removeChannel(channel);
+    };
   }
+
 };

@@ -15,13 +15,140 @@
 /* ─────────────────────────────────────────
    STATE
 ───────────────────────────────────────── */
+const CART_KEY = 'awlad_elkady_cart_v1';
+
+function readCart() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+    return Array.isArray(value) ? value.filter(item => item && item.id) : [];
+  } catch (_) { return []; }
+}
+
 const state = {
   products: [],
   filteredProducts: [],
+  cart: readCart(),
   currentFilter: 'all',
   selectedProduct: null,
   sliderIndex: 0,
   sliderInterval: null
+};
+
+function saveCart() {
+  localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
+  updateCartCount();
+}
+
+function unitPrice(product) {
+  const sale = Number(product?.sale_price || 0);
+  const base = Number(product?.price || 0);
+  return sale > 0 && sale < base ? sale : base;
+}
+
+function cartSubtotal() {
+  return state.cart.reduce((sum, item) => sum + (unitPrice(item) * Number(item.qty || 1)), 0);
+}
+
+function snapshotProduct(product) {
+  return {
+    id: product.id,
+    name: product.name || '',
+    description: product.description || '',
+    price: Number(product.price || 0),
+    sale_price: Number(product.sale_price || 0),
+    stock: Number(product.stock || 0),
+    images: Array.isArray(product.images) ? product.images.slice(0, 6) : [],
+    category: product.category || '',
+    material: product.material || '',
+    size: product.size || '',
+    bosta_size: product.bosta_size || ''
+  };
+}
+
+function updateCartCount() {
+  const count = state.cart.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const el = document.getElementById('cart-count');
+  if (el) el.textContent = String(count);
+}
+
+function addToCart(product, quantity = 1) {
+  if (!product?.id || Number(product.stock || 0) < 1) {
+    alert('المنتج غير متوفر حالياً.');
+    return false;
+  }
+  const existing = state.cart.find(item => String(item.id) === String(product.id));
+  const nextQty = Number(existing?.qty || 0) + Number(quantity || 1);
+  const maxStock = Math.max(1, Number(product.stock || existing?.stock || 1));
+  if (nextQty > maxStock) {
+    alert(`المتاح حالياً ${maxStock} قطعة فقط.`);
+    return false;
+  }
+  if (existing) Object.assign(existing, snapshotProduct(product), { qty: nextQty });
+  else state.cart.push({ ...snapshotProduct(product), qty: Number(quantity || 1) });
+  saveCart();
+  renderCart();
+  return true;
+}
+
+function removeFromCart(productId) {
+  state.cart = state.cart.filter(item => String(item.id) !== String(productId));
+  saveCart();
+  renderCart();
+}
+
+function changeCartQty(productId, delta) {
+  const item = state.cart.find(row => String(row.id) === String(productId));
+  if (!item) return;
+  const next = Number(item.qty || 1) + Number(delta || 0);
+  const maxStock = Math.max(1, Number(item.stock || 1));
+  if (next <= 0) return removeFromCart(productId);
+  if (next > maxStock) return alert(`المتاح حالياً ${maxStock} قطعة فقط.`);
+  item.qty = next;
+  saveCart();
+  renderCart();
+  renderCheckoutItems();
+}
+
+function renderCart() {
+  const target = document.getElementById('cart-items');
+  const subtotal = document.getElementById('cart-subtotal');
+  const checkout = document.getElementById('cart-checkout-btn');
+  if (!target) return;
+  target.innerHTML = state.cart.length ? state.cart.map(item => `
+    <div class="cart-item">
+      <div class="cart-item-main"><strong>${escapeHtml(item.name || 'منتج')}</strong><span>${unitPrice(item).toLocaleString('ar-EG')} جنيه</span></div>
+      <div class="cart-item-actions">
+        <button type="button" onclick="changeCartQty('${escapeHtml(item.id)}', -1)" aria-label="تقليل الكمية">−</button>
+        <span>${Number(item.qty || 1)}</span>
+        <button type="button" onclick="changeCartQty('${escapeHtml(item.id)}', 1)" aria-label="زيادة الكمية">+</button>
+        <button type="button" class="cart-remove" onclick="removeFromCart('${escapeHtml(item.id)}')">حذف</button>
+      </div>
+    </div>`).join('') : '<p class="cart-empty">السلة فاضية حالياً.</p>';
+  if (subtotal) subtotal.textContent = `${cartSubtotal().toLocaleString('ar-EG')} جنيه`;
+  if (checkout) checkout.disabled = !state.cart.length;
+}
+
+function renderCheckoutItems() {
+  const target = document.getElementById('checkout-items');
+  if (!target) return;
+  target.innerHTML = state.cart.length ? `<div class="checkout-summary">${state.cart.map(item => `<div><span>${escapeHtml(item.name)} × ${Number(item.qty || 1)}</span><strong>${(unitPrice(item) * Number(item.qty || 1)).toLocaleString('ar-EG')} جنيه</strong></div>`).join('')}<div class="checkout-summary-total"><span>إجمالي المنتجات</span><strong>${cartSubtotal().toLocaleString('ar-EG')} جنيه</strong></div></div>` : '';
+}
+
+window.openCart = function() {
+  renderCart();
+  document.getElementById('cart-modal')?.classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
+window.closeCart = function() {
+  document.getElementById('cart-modal')?.classList.remove('open');
+  document.body.style.overflow = '';
+};
+window.removeFromCart = removeFromCart;
+window.changeCartQty = changeCartQty;
+window.checkoutCart = function() {
+  if (!state.cart.length) return alert('السلة فاضية حالياً.');
+  closeCart();
+  openCheckout();
 };
 
 /* ─────────────────────────────────────────
@@ -79,46 +206,95 @@ function initHeroParallax() {
 ───────────────────────────────────────── */
 async function loadSettings() {
   try {
-    const data = await Supabase.select(TABLES.site_settings, 'id=eq.1');
-    if (data && data.length > 0) {
-      const settings = data[0];
-      window.siteSettings = settings;
-      applySiteSettings(settings);
-      applyMarqueeTimer(settings);
-    }
+    const results = await Promise.allSettled([
+      Supabase.select(TABLES.site_settings, 'id=eq.1'),
+      TABLES.faqs ? Supabase.select(TABLES.faqs, 'is_visible=eq.true&order=sort_order.asc,created_at.asc') : Promise.resolve([]),
+      TABLES.socials ? Supabase.select(TABLES.socials, 'is_visible=eq.true&order=sort_order.asc,created_at.asc') : Promise.resolve([])
+    ]);
+    const settingsRows = results[0].status === 'fulfilled' ? results[0].value : [];
+    const faqRows = results[1].status === 'fulfilled' ? results[1].value : [];
+    const socialRows = results[2].status === 'fulfilled' ? results[2].value : [];
+    const settings = settingsRows?.[0] || {};
+    window.siteSettings = settings;
+    window.siteFaqs = Array.isArray(faqRows) ? faqRows : [];
+    window.siteSocials = Array.isArray(socialRows) ? socialRows : [];
+    applySiteSettings(settings);
+    renderFaqs(window.siteFaqs);
+    renderSocials(window.siteSocials);
+    renderTrustCards(settings.trust_cards);
+    renderTestimonials(settings.testimonials);
+    applyMarqueeTimer(settings);
   } catch (err) {
-    console.error('Failed to load settings:', err);
+    console.error('[landing settings]', err);
+    renderFaqs([]);
+    renderTestimonials([]);
   }
 }
 
 function applySiteSettings(settings) {
-  const setText = (selector, value) => {
-    const el = document.querySelector(selector);
-    if (el && value != null) el.textContent = String(value);
-  };
-  const phone = settings.footer_phone || settings.whatsapp_number;
-  if (phone) {
-    document.querySelectorAll('a[href^="tel:"]').forEach(el => { el.href = `tel:${phone}`; });
-    document.querySelectorAll('a[href*="wa.me"]').forEach(el => { el.href = `https://wa.me/${String(phone).replace(/^0/, '20')}`; });
-  }
-  setText('.site-brand-name', settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية');
-  setText('.footer-brand-name', settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية');
-  setText('.contact-info p:first-of-type', settings.address);
-  const setAttr = (selector, attr, value) => {
-    const el = document.querySelector(selector);
-    if (el && value) el.setAttribute(attr, String(value));
-  };
-  setText('.nav-logo-text', settings.site_name);
-  setText('.hero-title', settings.hero_title);
-  setText('.marquee-content', settings.marquee_text);
+  const siteName = settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية';
+  const address = settings.address || 'شارع الإصلاح الزراعي، بجوار عمر أفقندى، أمام (المان) للعطور';
+  const phone = String(settings.footer_phone || settings.phone || '01118060702');
+  const whatsapp = String(settings.whatsapp_number || phone).replace(/[^0-9]/g, '').replace(/^0/, '20');
+  const setText = (selector, value) => document.querySelectorAll(selector).forEach(el => { el.textContent = String(value ?? ''); });
+  const setAttr = (selector, attr, value) => document.querySelectorAll(selector).forEach(el => { if (value) el.setAttribute(attr, String(value)); });
+
+  document.title = settings.page_title || `${siteName} | الأدوات المنزلية`;
+  setText('.site-brand-name, .footer-brand-name, #site-contact-name', siteName);
+  setText('#site-address, .footer-address, .site-address-footer', address);
+  setText('#site-phone-link', phone);
+  setAttr('#site-phone-link, a[href^="tel:"], .footer-contact-item[href^="tel:"], .social-link[href^="tel:"]', 'href', `tel:${phone}`);
+  setAttr('#site-whatsapp-link, a[href*="wa.me"], .footer-contact-item[href*="wa.me"], .social-link[href*="wa.me"], #whatsapp-float', 'href', `https://wa.me/${whatsapp}`);
+  setText('[data-cms="hero-title"]', settings.hero_title || `${siteName}`);
+  setText('[data-cms="hero-subtitle"]', settings.hero_subtitle || settings.hero_description || '');
+  setText('[data-cms="hero-tagline"]', settings.hero_tagline || '');
+  setText('[data-cms="catalog-title"]', settings.catalog_title || 'المنتجات المتاحة حالياً');
+  setText('[data-cms="catalog-subtitle"]', settings.catalog_subtitle || '');
+  const marqueeText = settings.marquee_text || '';
+  setText('[data-cms="marquee-text"], [data-cms="marquee-text-copy"]', marqueeText);
+  const marqueeBar = document.querySelector('.ann-bar');
+  if (marqueeBar) marqueeBar.hidden = !marqueeText;
   setAttr('.nav-logo-img-blend', 'src', settings.logo_header);
   setAttr('.footer-logo-blend', 'src', settings.logo_footer || settings.logo_header);
   setAttr('meta[name="description"]', 'content', settings.seo_description);
   setText('#year', new Date().getFullYear());
+  applySectionVisibility(settings.section_visibility);
   if (settings.maintenance_mode) {
-    const message = settings.maintenance_message || 'الموقع تحت الصيانة حاليًا.';
+    const message = settings.maintenance_message || 'الموقع غير متاح حالياً.';
     document.body.innerHTML = `<main class="maintenance-state"><h1>${escapeHtml(message)}</h1></main>`;
   }
+}
+
+function applySectionVisibility(visibility = {}) {
+  if (!visibility || typeof visibility !== 'object') return;
+  Object.entries(visibility).forEach(([id, enabled]) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = enabled === false;
+  });
+}
+
+function renderSocials(socials = []) {
+  const target = document.getElementById('footer-socials');
+  if (!target) return;
+  const allowed = /^(https?:|tel:|mailto:)/i;
+  const list = Array.isArray(socials) ? socials.filter(item => item && allowed.test(String(item.link || '')) && !String(item.link).includes('#')) : [];
+  target.innerHTML = list.map(item => `<a class="social-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.name || 'تواصل')}"><span>${escapeHtml(item.name || 'تواصل')}</span></a>`).join('');
+}
+
+function renderTrustCards(cards = []) {
+  const target = document.getElementById('trust-cards');
+  if (!target) return;
+  const list = Array.isArray(cards) ? cards.filter(card => card && (card.title || card.text)) : [];
+  target.innerHTML = list.map(card => `<div class="trust-card reveal"><div class="trust-icon" aria-hidden="true">${escapeHtml(card.icon || '')}</div><div class="trust-text"><h3>${escapeHtml(card.title || '')}</h3><p>${escapeHtml(card.text || '')}</p></div></div>`).join('');
+  initReveal();
+}
+
+function renderFaqs(faqs = []) {
+  const list = document.getElementById('faq-list');
+  if (!list) return;
+  if (!Array.isArray(faqs) || !faqs.length) { list.innerHTML = ''; return; }
+  list.innerHTML = faqs.map(faq => `<div class="faq-item reveal" role="listitem"><button class="faq-q" onclick="toggleFaq(this)" aria-expanded="false"><span>${escapeHtml(faq.q || '')}</span><span aria-hidden="true">⌄</span></button><div class="faq-a"><p>${escapeHtml(faq.a || '')}</p></div></div>`).join('');
+  initReveal();
 }
 
 function escapeHtml(value) {
@@ -150,131 +326,90 @@ function applyMarqueeTimer(settings) {
 /* ─────────────────────────────────────────
    PRODUCTS — Load from Supabase
 ───────────────────────────────────────── */
-const CATALOG_PRODUCTS = [
-  {name:'طقم أواني طهي استانلس 12 قطعة',price:150,sale_price:120,category:'أواني الطهي',images:[{url:'assets/images/catalog_02.png'}]},
-  {name:'طقم أواني طهي استانلس 4 قطع',price:120,category:'أواني الطهي',images:[{url:'assets/images/catalog_03.jpeg'}]},
-  {name:'طقم أواني طهي غير لاصق 24 قطعة',price:1200,sale_price:650,category:'أواني الطهي',images:[{url:'assets/images/catalog_04.jpeg'}]},
-  {name:'طقم أواني طهي 25 قطعة',price:60,category:'أواني الطهي',images:[{url:'assets/images/catalog_05.jpeg'}]},
-  {name:'طقم أواني طهي جرانيت 8 قطع',price:3000,sale_price:1500,category:'أواني الطهي',images:[{url:'assets/images/catalog_06.jpeg'}]},
-  {name:'طقم أواني استانلس 12 قطعة',price:2900,category:'أواني الطهي',images:[{url:'assets/images/catalog_07.png'}]},
-  {name:'طقم حلل استانلس بمقابض وأغطية 8 قطع',price:2600,sale_price:1400,category:'أواني الطهي',images:[{url:'assets/images/catalog_08.png'}]},
-  {name:'طقم حلل استانلس تشكيلة منزلية',price:3500,sale_price:1800,category:'أواني الطهي',images:[{url:'assets/images/catalog_09.jpeg'}]},
-  {name:'طقم أواني جرانيت متعدد القطع',price:3800,sale_price:1700,category:'أواني الطهي',images:[{url:'assets/images/catalog_10.jpeg'}]},
-  {name:'طقم أواني استانلس للمطبخ العصري',price:3200,sale_price:1500,category:'أواني الطهي',images:[{url:'assets/images/catalog_11.jpeg'}]},
-  {name:'منظم أدراج المطبخ',price:400,sale_price:180,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_12.jpeg'}]},
-  {name:'منظم تخزين متعدد الاستخدام',price:425,sale_price:190,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_13.jpeg'}]},
-  {name:'صندوق تخزين للمطبخ',price:450,sale_price:200,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_14.jpeg'}]},
-  {name:'منظم أدوات المائدة',price:475,sale_price:210,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_15.jpeg'}]},
-  {name:'منظم أجهزة المطبخ',price:500,sale_price:220,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_16.jpeg'}]},
-  {name:'منظم منزلي عملي',price:525,sale_price:230,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_17.jpeg'}]},
-  {name:'صندوق تخزين منزلي',price:550,sale_price:240,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_18.jpeg'}]},
-  {name:'منظم مطبخ صغير',price:575,sale_price:250,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_19.png'}]},
-  {name:'أدوات مطبخ للاحتياجات اليومية',price:600,sale_price:260,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_20.jpeg'}]},
-  {name:'جهاز مطبخ صغير',price:625,sale_price:270,category:'التخزين والتنظيم',images:[{url:'assets/images/catalog_21.jpeg'}]},
-  {name:'طقم سفرة فاخر 4 أفراد',price:4000,sale_price:2500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_22.jpeg'}]},
-  {name:'طقم سفرة فاخر 6 أفراد',price:5000,sale_price:3000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_23.jpeg'}]},
-  {name:'طقم سفرة فاخر 8 أفراد',price:6000,sale_price:3500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_24.png'}]},
-  {name:'طقم سفرة فاخر بتصميم عصري',price:7000,sale_price:4000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_25.png'}]},
-  {name:'طقم أطباق تقديم فاخر',price:8000,sale_price:4500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_26.jpeg'}]},
-  {name:'طقم ضيافة متكامل',price:9000,sale_price:5000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_27.jpeg'}]},
-  {name:'طقم سفرة مودرن',price:10000,sale_price:5500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_02.png'}]},
-  {name:'طقم أطباق بورسلين فاخر',price:11000,sale_price:6000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_22.jpeg'}]},
-  {name:'طقم تقديم للمناسبات',price:12000,sale_price:6500,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_23.jpeg'}]},
-  {name:'طقم سفرة فاخر متكامل',price:13000,sale_price:7000,category:'السفرة والتقديم',images:[{url:'assets/images/catalog_24.png'}]}
-  ];
-
-  // أسعار العرض المعتمدة فقط هي التي تعرض Badge والسعر القديم.
-  CATALOG_PRODUCTS.forEach((product, index) => {
-    if (![0, 2, 4, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25].includes(index)) delete product.sale_price;
-  });
-
-async function loadProducts() {
-  if (!Dom.productGrid) return;
-  Dom.productGrid.innerHTML = `
-    <div class="products-loading">
-      <div class="spinner"></div>
-      <p>جاري تحميل المنتجات…</p>
-    </div>`;
-
+/* لا يوجد كتالوج ثابت هنا: قاعدة البيانات هي المصدر الوحيد للمنتجات. */
+async function loadProducts({ preserveModal = true } = {}) {
+  if (!Dom.productGrid) return [];
   try {
-    const catalogProducts = CATALOG_PRODUCTS.map((p, index) => ({...p, id: `catalog-${index + 1}`, stock: 1, is_active: true}));
-    const safeProducts = catalogProducts;
-    state.products = safeProducts;
-    state.filteredProducts = safeProducts;
-    renderProducts(safeProducts);
-    buildFilters(safeProducts);
+    const fresh = await Promise.race([
+      Supabase.select(TABLES.products, 'is_active=eq.true&order=created_at.desc'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('PRODUCTS_TIMEOUT')), 8000))
+    ]);
+    state.products = Array.isArray(fresh) ? fresh : [];
+    state.filteredProducts = state.products;
+    if (!preserveModal || !document.querySelector('#checkout-modal.open, #quickview-modal.open')) {
+      renderProducts(state.products);
+      buildFilters(state.products);
+    }
+    return state.products;
   } catch (err) {
-    const safeProducts = CATALOG_PRODUCTS.map((p, index) => ({...p, id: `catalog-${index + 1}`, stock: 1, is_active: true}));
-    state.products = safeProducts;
-    state.filteredProducts = safeProducts;
-    renderProducts(safeProducts);
-    buildFilters(safeProducts);
-    return;
-    Dom.productGrid.innerHTML = `
-      <div class="products-error">
-        <div style="font-size:2.5rem;margin-bottom:0.5rem">⚠️</div>
-        <h3>لم نتمكن من تحميل المنتجات</h3>
-        <p style="margin-top:0.4rem;font-size:0.85rem">تأكد من إعدادات Supabase في ملف config.js</p>
-        <button onclick="loadProducts()" style="margin-top:1rem;padding:0.6rem 1.5rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.9rem;cursor:pointer;border:none">إعادة المحاولة</button>
-      </div>`;
+    console.error('[landing products]', err);
+    state.products = [];
+    state.filteredProducts = [];
+    if (!document.querySelector('#checkout-modal.open, #quickview-modal.open')) {
+      Dom.productGrid.innerHTML = '<div class="products-error"><p>لم توجد منتجات متاحة حالياً أو انتهت مهلة التحميل.</p><button type="button" class="btn-retry-products" onclick="loadProducts({ preserveModal: false })">إعادة المحاولة</button></div>';
+      buildFilters([]);
+    }
+    return [];
   }
+}
+
+function productImage(product) {
+  const images = Array.isArray(product?.images) ? product.images : [];
+  const main = images.find(image => image && image.main) || images[0];
+  return typeof main === 'string' ? main : (main?.url || '');
 }
 
 function renderProducts(products) {
   if (!Dom.productGrid) return;
-
-  if (!products.length) {
-    Dom.productGrid.innerHTML = `<div class="products-error"><p>لا توجد منتجات في هذا القسم حالياً.</p></div>`;
+  if (!Array.isArray(products) || !products.length) {
+    Dom.productGrid.innerHTML = '<div class="products-error"><p>لا توجد منتجات متاحة حالياً.</p></div>';
     return;
   }
 
-  Dom.productGrid.innerHTML = products.map((p, idx) => {
+  Dom.productGrid.innerHTML = products.map((p) => {
     const hasDiscount = Number(p.sale_price) > 0 && Number(p.price) > Number(p.sale_price);
-    const discountPct = hasDiscount
-      ? Math.round((1 - (p.sale_price / p.price)) * 100)
-      : 0;
-
-    const scarcityHtml = p.is_bestseller
-      ? '<span class="scarcity-tag bestseller">⭐ الأكثر مبيعاً</span>'
-      : '';
-
+    const discountPct = hasDiscount ? Math.round((1 - (Number(p.sale_price) / Number(p.price))) * 100) : 0;
+    const image = productImage(p);
+    const imageHtml = image
+      ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(p.name || 'صورة المنتج')}" loading="lazy">`
+      : '<div class="product-no-image" aria-label="لا توجد صورة للمنتج">لا توجد صورة</div>';
+    const scarcityHtml = p.is_bestseller ? '<span class="scarcity-tag bestseller">الأكثر مبيعاً</span>' : '';
     return `
-    <article class="product-card reveal" data-id="${p.id}">
-      <div class="product-img-wrap">
-        <img
-          src="${p.images && p.images[0] ? p.images[0].url : 'assets/images/placeholder.webp'}"
-          alt="${p.name}"
-          loading="lazy"
-          onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><rect fill=%22%23f0f4f1%22 width=%22200%22 height=%22200%22/><text y=%22.9em%22 font-size=%2290%22 x=%2250%25%22 text-anchor=%22middle%22>🏠</text></svg>'"
-        />
-        ${discountPct > 0 ? `<span class="product-badge">خصم ${discountPct}%</span>` : ''}
-        ${scarcityHtml}
-      </div>
-      <div class="product-info">
-        ${p.category ? `<span class="product-cat">${p.category}</span>` : ''}
-        <h3 class="product-name">${p.name}</h3>
-        ${p.description ? `<p class="product-spec">${p.description}</p>` : ''}
-        <div class="product-pricing">
-          <span class="price-new">${Number(p.sale_price || p.price || 0).toLocaleString('ar-EG')}</span>
-          ${hasDiscount ? `<span class="price-old">${Number(p.price).toLocaleString('ar-EG')} جنيه</span>` : ''}
+      <article class="product-card reveal" data-id="${escapeHtml(p.id)}">
+        <div class="product-img-wrap">
+          ${imageHtml}
+          ${discountPct > 0 ? `<span class="product-badge">خصم ${discountPct}%</span>` : ''}
+          ${scarcityHtml}
         </div>
-        <div class="product-actions">
-          <button
-            class="btn-order"
-            id="order-btn-${p.id}"
-            onclick="openCheckout(${JSON.stringify(p).replace(/"/g, '&quot;')})"
-          >🛒 اطلب الآن</button>
-          <button
-            class="btn-details"
-            onclick="openQuickView(${JSON.stringify(p).replace(/"/g, '&quot;')})"
-            aria-label="تفاصيل ${p.name}"
-          >تفاصيل</button>
+        <div class="product-info">
+          ${p.category ? `<span class="product-cat">${escapeHtml(p.category)}</span>` : ''}
+          <h3 class="product-name">${escapeHtml(p.name || 'منتج')}</h3>
+          ${p.description ? `<p class="product-spec">${escapeHtml(p.description)}</p>` : ''}
+          <div class="product-pricing">
+            <span class="price-new">${Number(hasDiscount ? p.sale_price : p.price || 0).toLocaleString('ar-EG')} جنيه</span>
+            ${hasDiscount ? `<span class="price-old">${Number(p.price).toLocaleString('ar-EG')} جنيه</span>` : ''}
+          </div>
+          <div class="product-actions">
+            <button class="btn-order" data-action="order" data-product-id="${escapeHtml(p.id)}">🛒 اطلب الآن</button>
+            <button class="btn-details" data-action="details" data-product-id="${escapeHtml(p.id)}" aria-label="تفاصيل ${escapeHtml(p.name || 'المنتج')}">تفاصيل</button>
+          </div>
         </div>
-      </div>
-    </article>`;
+      </article>`;
   }).join('');
-
   initReveal();
+}
+
+function initProductGridEvents() {
+  Dom.productGrid?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action][data-product-id]');
+    if (!button) return;
+    const product = state.products.find(item => String(item.id) === String(button.dataset.productId));
+    if (!product) return;
+    if (button.dataset.action === 'details') openQuickView(product);
+    if (button.dataset.action === 'order') {
+      if (addToCart(product)) openCheckout();
+    }
+  });
 }
 
 /* ─── Filters ─── */
@@ -397,22 +532,12 @@ window.orderFromQV = function() {
    CHECKOUT MODAL
 ───────────────────────────────────────── */
 function openCheckout(product) {
-  state.selectedProduct = product;
-
-  // Product preview
-  if (Dom.modalProdName)  Dom.modalProdName.textContent  = product.name;
-  if (Dom.modalProdPrice) Dom.modalProdPrice.textContent = `${Number(product.sale_price || product.price || 0).toLocaleString('ar-EG')}`;
-  if (Dom.modalProdImg) {
-    Dom.modalProdImg.src = (product.images && product.images[0]) ? product.images[0].url : '';
-    Dom.modalProdImg.alt = product.name;
+  if (product && !state.cart.some(item => String(item.id) === String(product.id))) {
+    if (!addToCart(product)) return;
   }
-
-  // Restore form state
-  if (Dom.modalContent) {
-    Dom.modalContent.innerHTML = Dom.modalContent.dataset.origHtml || Dom.modalContent.innerHTML;
-  }
+  state.selectedProduct = product || state.cart[0] || null;
+  renderCheckoutItems();
   if (Dom.orderForm) Dom.orderForm.reset();
-
   Dom.checkoutModal.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
@@ -437,19 +562,35 @@ async function submitOrder(e) {
     alert('راجع الاسم ورقم الموبايل والمحافظة والعنوان؛ البيانات غير صحيحة.');
     return;
   }
-  if (!state.selectedProduct?.id || Number(state.selectedProduct?.stock) < 1) {
-    alert('المنتج غير متاح أو المخزون غير كافٍ.');
+  if (!state.cart.length) {
+    alert('السلة فاضية أو المنتج لم يعد متاحاً.');
     return;
   }
 
   btn.disabled = true;
   btn.innerHTML = `<div class="spinner" style="width:22px;height:22px;border-width:3px;margin:0"></div> جاري الإرسال…`;
 
-  const subtotal = Number(state.selectedProduct?.sale_price || state.selectedProduct?.price || 0);
-  const shippingFee = calculateShipping(gov, state.selectedProduct?.bosta_size, subtotal);
+  const subtotal = cartSubtotal();
+  const bostaSize = state.cart.map(item => item.bosta_size).find(Boolean) || '';
+  const shippingFee = calculateShipping(gov, bostaSize, subtotal);
   const total = subtotal + shippingFee;
 
   try {
+    const productIds = state.cart.map(item => encodeURIComponent(item.id)).join(',');
+    const currentRows = await Supabase.select(TABLES.products, `id=in.(${productIds})&limit=100`);
+    const currentById = new Map((currentRows || []).map(row => [String(row.id), row]));
+    for (const item of state.cart) {
+      const current = currentById.get(String(item.id));
+      const requestedPrice = unitPrice(item);
+      const actualPrice = unitPrice(current);
+      if (!current || current.is_active === false || Number(current.stock || 0) < Number(item.qty || 1)) {
+        throw new Error('PRODUCT_UNAVAILABLE');
+      }
+      if (actualPrice !== requestedPrice) {
+        throw new Error('PRODUCT_PRICE_CHANGED');
+      }
+    }
+
     const orderPayload = {
       customer_name: name,
       customer_phone: phone,
@@ -459,38 +600,54 @@ async function submitOrder(e) {
       subtotal,
       shipping_fee: shippingFee,
       total,
-      items: [{
-        product_id: state.selectedProduct?.id,
-        name: state.selectedProduct?.name,
-        qty: 1,
-        price: state.selectedProduct?.sale_price || state.selectedProduct?.price || 0,
-        sku: state.selectedProduct?.sku
-      }],
-      status: 'جديد'
+      payment_method: 'cod',
+      items: state.cart.map(item => ({
+        product_id: item.id,
+        name: item.name,
+        qty: Number(item.qty || 1),
+        price: unitPrice(item),
+        image: productImage(item)
+      }))
     };
-    await Supabase.rpc('create_order_with_stock', {
-      p_order: orderPayload,
-      p_product_id: state.selectedProduct?.id,
-      p_quantity: 1
-    });
+    const orderResult = await Supabase.rpc('create_order_with_stock_bulk', { p_order: orderPayload });
+    const orderId = orderResult?.order_id || orderResult?.id || orderResult;
+    const accessToken = orderResult?.access_token || '';
+    state.cart = [];
+    saveCart();
 
-    // Success state
     const modalBox = document.querySelector('.modal-box');
     if (modalBox) {
       modalBox.innerHTML = `
-        <button class="modal-close" onclick="closeCheckout()" title="إغلاق">✕</button>
+        <button type="button" class="modal-close" onclick="closeCheckout()" title="إغلاق">✕</button>
         <div class="success-state">
           <div class="success-icon">✓</div>
-          <h3>تم استلام طلبك! 🎉</h3>
-          <p>شكراً <strong>${name}</strong>، طلبك في الطريق إليك.<br>سيتواصل معك فريقنا خلال وقت قصير لتأكيد الشحن.</p>
-          <button onclick="closeCheckout()" style="margin-top:1rem;padding:0.7rem 2rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;border:none">رائع! شكراً</button>
+          <h3>تم استلام طلبك!</h3>
+          <p>شكراً <strong>${escapeHtml(name)}</strong>، رقم طلبك <strong>#${escapeHtml(orderId)}</strong>.<br>الدفع عند الاستلام. سيتم تجهيز الشحنة والتواصل معك قريباً.</p>
+          <button type="button" onclick="closeCheckout()" style="margin-top:1rem;padding:0.7rem 2rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;border:none">رائع! شكراً</button>
         </div>`;
     }
+    queueBostaCreation(orderId, accessToken);
   } catch (err) {
-    console.error(err);
+    console.error('[order submit]', err);
     btn.disabled = false;
     btn.innerHTML = '✓ تأكيد الطلب';
-    alert('حدث خطأ أثناء إرسال الطلب. يرجى المحاولة مرة أخرى.');
+    if (err.message === 'PRODUCT_PRICE_CHANGED') alert('سعر منتج اتحدث. السلة محفوظة؛ راجعها وحاول مرة أخرى.');
+    else if (err.message === 'PRODUCT_UNAVAILABLE') alert('منتج في السلة لم يعد متاحاً أو الكمية غير كافية. السلة محفوظة.');
+    else alert('حدث خطأ أثناء إرسال الطلب. يرجى المحاولة مرة أخرى.');
+  }
+}
+
+async function queueBostaCreation(orderId, accessToken) {
+  if (!ADMIN_BACKEND_URL || !orderId || !accessToken) return;
+  try {
+    await fetch(`${ADMIN_BACKEND_URL}/api/bosta-create-delivery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify({ order_id: orderId, access_token: accessToken })
+    });
+  } catch (err) {
+    console.warn('[bosta create]', err);
   }
 }
 
@@ -518,10 +675,9 @@ async function trackOrder() {
   result.innerHTML = `<div class="spinner" style="width:28px;height:28px;border-width:3px;margin:1rem auto"></div>`;
 
   try {
-    const orders = await Supabase.select(
-      TABLES.orders,
-      `customer_phone=eq.${encodeURIComponent(phone)}&order=created_at.desc&limit=1`
-    );
+    const response = await fetch(`${ADMIN_BACKEND_URL}/api/bosta-track?phone=${encodeURIComponent(phone)}`, { credentials: 'omit' });
+    if (!response.ok) throw new Error('TRACK_FAILED');
+    const orders = await response.json();
 
     if (!orders.length) {
       result.innerHTML = `<p style="color:var(--clr-text-muted);text-align:center;margin-top:1rem">لا توجد طلبات مسجلة بهذا الرقم.</p>`;
@@ -541,9 +697,10 @@ async function trackOrder() {
       const date = new Date(o.created_at).toLocaleDateString('ar-EG');
       return `
         <div style="background:var(--clr-surface);border-radius:var(--radius-md);padding:0.9rem 1rem;margin-top:0.7rem;border:1px solid #dde8df">
-          <div style="font-weight:700;margin-bottom:0.2rem">${o.product_name || 'طلب'}</div>
-          <div style="font-size:0.85rem;color:var(--clr-text-muted)">${date}</div>
-          <div style="margin-top:0.4rem;font-weight:700;${s.cls}">${s.icon} ${o.status}</div>
+          <div style="font-weight:700;margin-bottom:0.2rem">طلب #${escapeHtml(o.id || '—')}</div>
+          <div style="font-size:0.85rem;color:var(--clr-text-muted)">${escapeHtml(date)}</div>
+          <div style="margin-top:0.4rem;font-weight:700;${s.cls}">${s.icon} ${escapeHtml(o.status || 'جديد')}</div>
+          ${o.bosta_tracking_number ? `<div style="margin-top:.35rem;font-size:.85rem">رقم التتبع: <strong>${escapeHtml(o.bosta_tracking_number)}</strong></div>` : ''}
         </div>`;
     }).join('');
   } catch (err) {
@@ -623,62 +780,49 @@ async function submitComplaint(e) {
 }
 
 /* ─────────────────────────────────────────
-   TESTIMONIALS SLIDER
+   TESTIMONIALS — database content only
 ───────────────────────────────────────── */
-// بيانات تجريبية للعرض فقط وليست تقييمات حقيقية من عملاء.
-const TESTIMONIALS = [
-  { name: 'عميلة تجريبية', letter: 'ع', city: 'تجربة توضيحية — القاهرة', stars: 5, text: 'المنتج وصل بحالة ممتازة والتغليف كان مرتب.' },
-  { name: 'عميل تجريبي', letter: 'م', city: 'تجربة توضيحية — الجيزة', stars: 5, text: 'التشكيلة متنوعة والأسعار واضحة على الموقع.' },
-  { name: 'عميلة تجريبية', letter: 'س', city: 'تجربة توضيحية — أسوان', stars: 4, text: 'تجربة عرض تجريبية توضح شكل آراء العملاء بعد الشراء.' }
-];
-
-function renderTestimonials() {
+function renderTestimonials(testimonials = []) {
+  const section = document.getElementById('testimonials');
   const track = Dom.sliderTrack;
-  const dots  = Dom.sliderDots;
-  if (!track) return;
-  if (!TESTIMONIALS.length) {
-    track.innerHTML = '<p class="empty-state">لا توجد تقييمات حقيقية متاحة حاليًا.</p>';
-    if (dots) dots.innerHTML = '';
+  const dots = Dom.sliderDots;
+  const list = Array.isArray(testimonials) ? testimonials.filter(item => item && item.text && item.name) : [];
+  if (!section || !track) return;
+  if (!list.length) {
+    section.hidden = true;
+    track.replaceChildren();
+    if (dots) dots.replaceChildren();
+    clearInterval(state.sliderInterval);
     return;
   }
-
-  track.innerHTML = TESTIMONIALS.map(t => `
+  section.hidden = false;
+  track.innerHTML = list.map(t => `
     <div class="testi-card">
-      <div class="testi-stars">${'★'.repeat(t.stars)}</div>
-      <p class="testi-text">"${t.text}"</p>
+      <div class="testi-stars">${'★'.repeat(Math.min(5, Math.max(1, Number(t.stars) || 5)))}</div>
+      <p class="testi-text">"${escapeHtml(t.text)}"</p>
       <div class="testi-author">
-        <div class="testi-avatar">${t.letter}</div>
-        <div>
-          <div class="testi-name">${t.name}</div>
-          <div class="testi-city">${t.city}</div>
-        </div>
+        <div class="testi-avatar">${escapeHtml(String(t.name).trim().slice(0, 1))}</div>
+        <div><div class="testi-name">${escapeHtml(t.name)}</div><div class="testi-city">${escapeHtml(t.city || '')}</div></div>
       </div>
-    </div>
-  `).join('');
-
-  if (dots) {
-    dots.innerHTML = TESTIMONIALS.map((_, i) =>
-      `<span class="slider-dot ${i === 0 ? 'active' : ''}" onclick="goToSlide(${i})" aria-label="انتقال للشريحة ${i+1}"></span>`
-    ).join('');
-  }
-
+    </div>`).join('');
+  if (dots) dots.innerHTML = list.map((_, i) => `<button class="slider-dot ${i === 0 ? 'active' : ''}" onclick="goToSlide(${i})" aria-label="انتقال للشريحة ${i + 1}"></button>`).join('');
+  state.testimonials = list;
   startSlider();
 }
 
 function goToSlide(index) {
   state.sliderIndex = index;
-  const card   = Dom.sliderTrack.querySelector('.testi-card');
-  const cardW  = card ? card.offsetWidth + 19 : 300;
-  Dom.sliderTrack.style.transform = `translateX(${index * cardW}px)`;
-  document.querySelectorAll('.slider-dot').forEach((d, i) =>
-    d.classList.toggle('active', i === index)
-  );
+  const card = Dom.sliderTrack?.querySelector('.testi-card');
+  const cardW = card ? card.offsetWidth + 19 : 300;
+  if (Dom.sliderTrack) Dom.sliderTrack.style.transform = `translateX(${index * cardW}px)`;
+  document.querySelectorAll('.slider-dot').forEach((d, i) => d.classList.toggle('active', i === index));
 }
 
 function startSlider() {
   clearInterval(state.sliderInterval);
+  if (!state.testimonials?.length || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   state.sliderInterval = setInterval(() => {
-    state.sliderIndex = (state.sliderIndex + 1) % TESTIMONIALS.length;
+    state.sliderIndex = (state.sliderIndex + 1) % state.testimonials.length;
     goToSlide(state.sliderIndex);
   }, 4000);
 }
@@ -716,6 +860,9 @@ function populateGovSelect() {
    CLOSE MODALS ON BACKDROP CLICK
 ───────────────────────────────────────── */
 function initModalBackdrops() {
+  $('cart-modal')?.addEventListener('click', e => {
+    if (e.target.id === 'cart-modal') closeCart();
+  });
   $('checkout-modal')?.addEventListener('click', e => {
     if (e.target.id === 'checkout-modal') closeCheckout();
   });
@@ -747,6 +894,7 @@ window.toggleFaq = function(button) {
 function initKeyboard() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      closeCart();
       closeCheckout();
       closeTrack();
       closeComplaint();
@@ -771,26 +919,19 @@ function initHeroBtn() {
 document.addEventListener('DOMContentLoaded', () => {
   initNavbar();
   initHeroParallax();
+  updateCartCount();
+  renderCart();
   populateGovSelect();
   loadSettings();
   Supabase.select(TABLES.shipping_rates).then(rates => { window.liveShippingRates = rates || []; }).catch(console.error);
-  loadProducts();
-  // Safety fallback: never leave the catalog on an endless loading state.
-  window.setTimeout(() => {
-    if (Dom.productGrid && Dom.productGrid.querySelector('.products-loading')) {
-      const safeProducts = CATALOG_PRODUCTS.map((p, index) => ({ ...p, id: `catalog-${index + 1}`, stock: 1, is_active: true }));
-      state.products = safeProducts;
-      state.filteredProducts = safeProducts;
-      renderProducts(safeProducts);
-      buildFilters(safeProducts);
-    }
-  }, 1500);
-  renderTestimonials();
+  loadProducts({ preserveModal: false });
+  initProductGridEvents();
   initReveal();
   initModalBackdrops();
   initForms();
   initKeyboard();
   initHeroBtn();
+  initRealtimeSync();
 
   // Complaint form binding
   document.getElementById('complaint-form')?.addEventListener('submit', submitComplaint);
@@ -800,29 +941,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.id === 'complaint-modal') closeComplaint();
   });
 
-  /* ─── Landing Page Polling (every 20s) ────────────────────────
-     تتحقق كل 20 ثانية من منتجات جديدة/مُعدّلة.
-     تتوقف تلقائياً لو فيه modal مفتوحة (لو الزبون بيكمل طلب).
-  ────────────────────────────────────────────────────────────── */
-  setInterval(async () => {
-    const anyModalOpen = document.querySelector(
-      '#checkout-modal.open, #quickview-modal.open, #track-modal.open, #complaint-modal.open'
-    );
-    if (anyModalOpen) return;
-    try {
-      const fresh = await Supabase.select(
-        TABLES.products,
-        'order=created_at.desc&is_active=eq.true'
-      );
-      // Only re-render if data actually changed (simple length + first id check)
-      if (
-        fresh.length !== state.products.length ||
-        (fresh[0]?.id !== state.products[0]?.id)
-      ) {
-        state.products = fresh;
-        filterProducts(state.currentFilter, null);
-        buildFilters(fresh);
-      }
-    } catch { /* silent – no network noise */ }
-  }, 20000);
+  /* ─── Live CMS synchronization ─── */
+
+function initRealtimeSync() {
+  const tables = [TABLES.products, TABLES.categories, TABLES.site_settings, TABLES.faqs, TABLES.socials].filter(Boolean);
+  let refreshTimer = null;
+  const refresh = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await Promise.all([loadProducts(), loadSettings()]);
+    }, 250);
+  };
+  const unsubscribe = Supabase.subscribeRealtime(tables, refresh);
+  window.landingRealtimeUnsubscribe = unsubscribe;
+
+  // Fallback فقط لو Realtime غير متاح أو انقطع.
+  setInterval(() => {
+    if (window.landingRealtimeConnected) return;
+    if (document.querySelector('#checkout-modal.open, #quickview-modal.open, #track-modal.open, #complaint-modal.open')) return;
+    refresh();
+  }, 30000);
+}
+
 });
