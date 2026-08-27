@@ -979,6 +979,12 @@ async function submitOrder(e) {
     if (!orderId) throw new Error('ORDER_RESPONSE_INVALID');
     const accessToken = orderResult?.access_token || '';
     saveOrderAccess(orderId, accessToken);
+    if (accessToken && ADMIN_BACKEND_URL) {
+      fetch(`${ADMIN_BACKEND_URL}/api/admin?action=notify_new_order`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
+        body: JSON.stringify({ order_id: orderId, access_token: accessToken })
+      }).catch(error => console.warn('[order notification]', error));
+    }
     state.cart = [];
     saveCart();
 
