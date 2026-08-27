@@ -389,7 +389,7 @@ async function loadProducts({ preserveModal = true } = {}) {
   try {
     const [productsResult, categoriesResult, linksResult] = await Promise.race([
       Promise.allSettled([
-        Supabase.select(TABLES.products, 'is_active=eq.true&order=created_at.desc'),
+        Supabase.select(TABLES.products, 'is_active=eq.true&is_archived=eq.false&order=created_at.desc'),
         Supabase.select(TABLES.categories, 'is_visible=eq.true&order=sort_order.asc,created_at.asc'),
         Supabase.select(TABLES.product_categories)
       ]),
