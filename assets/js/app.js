@@ -29,6 +29,7 @@ function readCart() {
 
 const state = {
   products: [],
+  categories: [],
   filteredProducts: [],
   cart: readCart(),
   currentFilter: 'all',
@@ -477,6 +478,62 @@ function applyMarqueeTimer(settings) {
    PRODUCTS — Load from Supabase
 ───────────────────────────────────────── */
 /* لا يوجد كتالوج ثابت هنا: قاعدة البيانات هي المصدر الوحيد للمنتجات. */
+const CATEGORY_IMAGE_DEFAULTS = {
+  'أدوات الطهي وأواني المطبخ': 'https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=1000&q=82',
+  'أجهزة المطبخ الكهربائية': 'https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&w=1000&q=82',
+  'مستلزمات التنظيم والتقديم والتنظيف': 'https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=1000&q=82'
+};
+
+function categoryImage(category) {
+  const value = category?.image_url || category?.image || category?.cover_image || '';
+  return String(value || CATEGORY_IMAGE_DEFAULTS[category?.name] || 'assets/images/logo.png');
+}
+
+function normalizeCategories(categories = []) {
+  return (Array.isArray(categories) ? categories : []).map(category => ({
+    ...category,
+    name: String(category.name || '').trim(),
+    desc: String(category.desc || category.description || '').trim(),
+    is_visible: category.is_visible !== false,
+    image_url: categoryImage(category)
+  })).filter(category => category.name && category.is_visible);
+}
+
+function renderLandingCategories(categories = [], products = []) {
+  const target = document.getElementById('landing-category-grid');
+  if (!target) return;
+  const list = normalizeCategories(categories);
+  if (!list.length) {
+    target.innerHTML = '<div class="category-empty-state"><strong>الأقسام هتظهر هنا قريباً</strong><span>يتم تجهيز تشكيلات المعرض حالياً.</span></div>';
+    return;
+  }
+  target.innerHTML = list.map(category => {
+    const categoryProducts = products.filter(product => (product.category_ids || []).includes(Number(category.id)) || (product.category_names || []).includes(category.name));
+    const hasProducts = categoryProducts.length > 0;
+    return `<article class="landing-category-card reveal" data-category-id="${escapeHtml(category.id)}" data-category-name="${escapeHtml(category.name)}">
+      <div class="landing-category-art"><img src="${escapeHtml(category.image_url)}" alt="${escapeHtml(category.name)}" loading="lazy" onerror="this.onerror=null;this.src='assets/images/logo.png'"><span class="landing-category-count">${hasProducts ? `${categoryProducts.length} منتجات` : 'قسم جديد'}</span></div>
+      <div class="landing-category-body"><h3>${escapeHtml(category.name)}</h3><p>${escapeHtml(category.desc || 'تشكيلة مختارة من منتجات المعرض للاستخدام اليومي.')}</p>${hasProducts ? `<button class="category-browse-btn" type="button" data-category-action="browse">تصفح منتجات القسم <span aria-hidden="true">←</span></button>` : '<div class="category-empty-message"><i class="fa-solid fa-box-open" aria-hidden="true"></i><span>لا توجد منتجات في القسم حالياً، لكن القسم متاح وسيتم إضافة المنتجات قريباً.</span></div>'}</div>
+    </article>`;
+  }).join('');
+  initReveal();
+}
+
+function initLandingCategoryEvents() {
+  const target = document.getElementById('landing-category-grid');
+  if (!target || target.dataset.bound === '1') return;
+  target.dataset.bound = '1';
+  target.addEventListener('click', event => {
+    const card = event.target.closest('[data-category-name]');
+    if (!card) return;
+    const name = card.dataset.categoryName || '';
+    const button = event.target.closest('[data-category-action="browse"]');
+    if (!button && !event.target.closest('.landing-category-art')) return;
+    const filterButton = Array.from(document.querySelectorAll('.filter-btn')).find(item => item.dataset.cat === name);
+    filterProducts(name, filterButton);
+    document.getElementById('product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 function attachProductCategories(products, categories, links) {
   const namesById = new Map((Array.isArray(categories) ? categories : []).map(category => [Number(category.id), category.name || '']));
   const idsByProduct = new Map();
@@ -512,13 +569,15 @@ async function loadProducts({ preserveModal = true } = {}) {
     ]);
     if (productsResult.status !== 'fulfilled') throw productsResult.reason || new Error('PRODUCTS_LOAD_FAILED');
     const fresh = Array.isArray(productsResult.value) ? productsResult.value : [];
-    const categories = categoriesResult.status === 'fulfilled' ? categoriesResult.value : [];
+    const categories = categoriesResult.status === 'fulfilled' ? normalizeCategories(categoriesResult.value) : [];
     const links = linksResult.status === 'fulfilled' ? linksResult.value : [];
+    state.categories = categories;
     state.products = attachProductCategories(fresh, categories, links);
     state.filteredProducts = state.products;
     if (!preserveModal || !document.querySelector('#checkout-modal.open, #quickview-modal.open')) {
       renderProducts(state.products);
-      buildFilters(state.products);
+      renderLandingCategories(state.categories, state.products);
+      buildFilters(state.products, state.categories);
     }
     return state.products;
   } catch (err) {
@@ -527,7 +586,8 @@ async function loadProducts({ preserveModal = true } = {}) {
     state.filteredProducts = [];
     if (!document.querySelector('#checkout-modal.open, #quickview-modal.open')) {
       Dom.productGrid.innerHTML = '<div class="products-error"><p>لم توجد منتجات متاحة حالياً أو انتهت مهلة التحميل.</p><button type="button" class="btn-retry-products" onclick="loadProducts({ preserveModal: false })">إعادة المحاولة</button></div>';
-      buildFilters([]);
+      renderLandingCategories(state.categories, []);
+      buildFilters([], state.categories);
     }
     return [];
   }
@@ -593,18 +653,19 @@ function initProductGridEvents() {
 }
 
 /* ─── Filters ─── */
-function buildFilters(products) {
-  const categories = ['all', ...new Set(products.map(p => p.category).filter(Boolean))];
+function buildFilters(products, sourceCategories = state.categories) {
+  const categoryNames = (Array.isArray(sourceCategories) ? sourceCategories : []).map(category => category.name).filter(Boolean);
+  const productCategoryNames = products.flatMap(product => Array.isArray(product.category_names) ? product.category_names : []).filter(Boolean);
+  const categories = ['all', ...new Set([...categoryNames, ...productCategoryNames])];
   const filterContainer = document.querySelector('.filters');
   if (!filterContainer) return;
 
   filterContainer.innerHTML = categories.map(cat => `
-    <button
-      class="filter-btn ${cat === 'all' ? 'active' : ''}"
-      data-cat="${cat}"
-      onclick="filterProducts('${cat}', this)"
-    >${cat === 'all' ? '🏷️ الكل' : cat}</button>
+    <button type="button" class="filter-btn ${cat === 'all' ? 'active' : ''}" data-cat="${escapeHtml(cat)}">${cat === 'all' ? '🏷️ الكل' : escapeHtml(cat)}</button>
   `).join('');
+  filterContainer.querySelectorAll('.filter-btn').forEach(button => {
+    button.addEventListener('click', () => filterProducts(button.dataset.cat || 'all', button));
+  });
 }
 
 function filterProducts(cat, btn) {
@@ -617,7 +678,7 @@ function filterProducts(cat, btn) {
 
   let filtered = state.products;
   if (cat !== 'all') {
-    filtered = filtered.filter(p => p.category === cat);
+    filtered = filtered.filter(p => (p.category_names || []).includes(cat) || p.category === cat);
   }
   if (query) {
     filtered = filtered.filter(p => String(p.name || '').toLowerCase().includes(query) || String(p.description || '').toLowerCase().includes(query));
@@ -637,7 +698,7 @@ window.searchProducts = function(query) {
 
   let filtered = state.products;
   if (state.currentFilter !== 'all') {
-    filtered = filtered.filter(p => p.category === state.currentFilter);
+    filtered = filtered.filter(p => (p.category_names || []).includes(state.currentFilter) || p.category === state.currentFilter);
   }
   if (query) {
     filtered = filtered.filter(p => String(p.name || '').toLowerCase().includes(query) || String(p.description || '').toLowerCase().includes(query));
@@ -1383,6 +1444,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Supabase.select(TABLES.shipping_rates).then(rates => { window.liveShippingRates = rates || []; }).catch(console.error);
   loadProducts({ preserveModal: false });
   initProductGridEvents();
+  initLandingCategoryEvents();
   initReveal();
   initModalBackdrops();
   initForms();
