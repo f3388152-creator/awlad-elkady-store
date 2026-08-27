@@ -346,6 +346,28 @@
       </button>
 
       <div id="track-result" role="status" aria-live="polite"></div>
+
+      <section class="track-management" aria-labelledby="track-management-title">
+        <div class="track-management-heading">
+          <div>
+            <h3 id="track-management-title">إدارة طلبك</h3>
+            <p>لأمان طلبك، استخدم رقم الطلب ورمز إدارة الطلب الموجودين بعد تأكيد الشراء. رقم الموبايل وحده لا يسمح بالإلغاء أو التعديل.</p>
+          </div>
+          <span class="track-lock" aria-hidden="true">🔒</span>
+        </div>
+        <div class="track-management-fields">
+          <div class="form-group">
+            <label for="track-order-id">رقم الطلب</label>
+            <input type="text" id="track-order-id" inputmode="numeric" placeholder="مثال: 1" dir="ltr" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="track-access-token">رمز إدارة الطلب</label>
+            <input type="password" id="track-access-token" placeholder="الصق الرمز من رسالة تأكيد الطلب" dir="ltr" autocomplete="off" />
+          </div>
+        </div>
+        <button type="button" id="track-manage-btn" class="track-action-primary" onclick="loadManagedOrder()">عرض التفاصيل وإدارة الطلب</button>
+        <div id="track-managed-result" role="status" aria-live="polite"></div>
+      </section>
     </div>
   </div>
 
@@ -431,6 +453,7 @@
       <div class="qv-inner">
         <div class="qv-img-wrap">
           <img id="qv-img" src="" alt="" />
+          <div id="qv-gallery" class="qv-gallery" aria-label="صور المنتج"></div>
           <span id="qv-badge" class="product-badge" style="display:none"></span>
         </div>
         <div class="qv-details">
@@ -438,6 +461,7 @@
           <h2 id="qv-product-name" class="qv-name"></h2>
           <p id="qv-spec" class="product-spec" style="margin-bottom:0.5rem"></p>
           <p id="qv-desc" class="qv-desc"></p>
+          <div id="qv-extra-details" class="qv-extra-details"></div>
           <p id="qv-stock" class="qv-stock" aria-live="polite"></p>
           <div class="product-pricing" style="margin:1rem 0">
             <span id="qv-price-new" class="price-new"></span>

@@ -16,6 +16,7 @@
    STATE
 ───────────────────────────────────────── */
 const CART_KEY = 'awlad_elkady_cart_v1';
+const ORDER_ACCESS_KEY = 'awlad_elkady_order_access_v1';
 let bostaLocationsPromise = null;
 let bostaLocationRows = [];
 
@@ -40,6 +41,34 @@ function saveCart() {
   localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
   updateCartCount();
 }
+
+function saveOrderAccess(orderId, accessToken) {
+  if (!orderId || !accessToken) return;
+  try {
+    const current = JSON.parse(sessionStorage.getItem(ORDER_ACCESS_KEY) || '{}');
+    current[String(orderId)] = String(accessToken);
+    const entries = Object.entries(current).slice(-10);
+    sessionStorage.setItem(ORDER_ACCESS_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch (_) { /* session storage may be unavailable */ }
+}
+
+function getOrderAccess(orderId) {
+  try {
+    const current = JSON.parse(sessionStorage.getItem(ORDER_ACCESS_KEY) || '{}');
+    return String(current[String(orderId)] || '');
+  } catch (_) { return ''; }
+}
+
+window.copyOrderAccessToken = async function(token) {
+  try {
+    await navigator.clipboard.writeText(String(token || ''));
+    const notice = document.getElementById('order-access-copy-notice');
+    if (notice) notice.textContent = 'تم نسخ رمز الإدارة.';
+  } catch (_) {
+    const notice = document.getElementById('order-access-copy-notice');
+    if (notice) notice.textContent = 'انسخ الرمز يدوياً واحتفظ به.';
+  }
+};
 
 function unitPrice(product) {
   const sale = Number(product?.sale_price || 0);
@@ -167,6 +196,10 @@ const Dom = {
   trackModal:     $('track-modal'),
   trackInput:     $('track-phone'),
   trackResult:    $('track-result'),
+  trackOrderId:   $('track-order-id'),
+  trackAccessToken: $('track-access-token'),
+  trackManageBtn: $('track-manage-btn'),
+  trackManagedResult: $('track-managed-result'),
   orderForm:      $('order-form'),
   confirmBtn:     $('btn-confirm'),
   sliderTrack:    $('slider-track'),
@@ -512,42 +545,67 @@ window.clearSearch = function() {
    QUICK VIEW MODAL
 ───────────────────────────────────────── */
 let currentQVProduct = null;
+
+function normalizeQuickViewProduct(product = {}) {
+  const images = Array.isArray(product.images) ? product.images.map(image => typeof image === 'string' ? image : image?.url).filter(Boolean) : [];
+  const name = String(product.name || product.product_name || '').trim();
+  const description = String(product.description || product.desc || product.details || '').trim();
+  const material = String(product.material || product.raw_material || '').trim();
+  const size = String(product.size || product.dimensions || '').trim();
+  return { ...product, name, description, material, size, images, price: Number(product.price || 0), sale_price: Number(product.sale_price || 0), stock: Number(product.stock || 0) };
+}
+
+function setQuickViewImage(url, alt, activeButton) {
+  const image = document.getElementById('qv-img');
+  if (image) { image.src = url || 'assets/images/logo.png'; image.alt = alt || 'صورة المنتج'; }
+  document.querySelectorAll('#qv-gallery button').forEach(button => button.classList.toggle('active', button === activeButton));
+}
+
 window.openQuickView = function(product) {
-  currentQVProduct = product;
+  const normalized = normalizeQuickViewProduct(product);
+  currentQVProduct = normalized;
   const modal = document.getElementById('quickview-modal');
   if (!modal) return;
+  const get = id => document.getElementById(id);
+  const hasDiscount = normalized.sale_price > 0 && normalized.price > normalized.sale_price;
+  const discountPct = hasDiscount ? Math.round((1 - (normalized.sale_price / normalized.price)) * 100) : 0;
+  const images = normalized.images.length ? normalized.images : ['assets/images/logo.png'];
+  setQuickViewImage(images[0], normalized.name || 'صورة المنتج', null);
 
-  const hasDiscount = Number(product.sale_price) > 0 && Number(product.price) > Number(product.sale_price);
-  const discountPct = hasDiscount ? Math.round((1 - (product.sale_price / product.price)) * 100) : 0;
-
-  const image = (product.images && product.images[0]) ? (product.images[0].url || product.images[0]) : 'assets/images/logo.png';
-  document.getElementById('qv-img').src = image;
-  document.getElementById('qv-img').alt = product.name || 'صورة المنتج';
-  document.getElementById('qv-product-name').textContent = product.name;
-  document.getElementById('qv-cat').textContent = product.category || '';
-  document.getElementById('qv-spec').textContent = [product.material && `الخامة: ${product.material}`, product.size && `المقاس: ${product.size}`].filter(Boolean).join(' · ');
-  document.getElementById('qv-desc').textContent = product.description || 'لا يوجد وصف متاح.';
-  document.getElementById('qv-stock').textContent = Number(product.stock) > 0 ? 'متوفر' : 'غير متوفر';
-  const basePrice = Number(product.price || 0);
-  const salePrice = Number(product.sale_price || 0);
-  document.getElementById('qv-price-new').textContent = Number(hasDiscount ? salePrice : basePrice).toLocaleString('ar-EG');
-
-  const oldPriceEl = document.getElementById('qv-price-old');
-  const badgeEl = document.getElementById('qv-badge');
-
+  const nameEl = get('qv-product-name');
+  const categoryEl = get('qv-cat');
+  const specEl = get('qv-spec');
+  const descEl = get('qv-desc');
+  const extraEl = get('qv-extra-details');
+  const stockEl = get('qv-stock');
+  const priceEl = get('qv-price-new');
+  const oldPriceEl = get('qv-price-old');
+  const badgeEl = get('qv-badge');
+  if (nameEl) nameEl.textContent = normalized.name || 'اسم المنتج غير متاح حالياً';
+  if (categoryEl) { categoryEl.textContent = normalized.category || 'منتجات منزلية'; categoryEl.hidden = false; }
+  if (specEl) { const specs = [normalized.material && `الخامة: ${normalized.material}`, normalized.size && `المقاس: ${normalized.size}`].filter(Boolean); specEl.textContent = specs.join(' · ') || 'المواصفات غير متاحة حالياً'; specEl.classList.toggle('qv-data-fallback', !specs.length); }
+  if (descEl) { descEl.textContent = normalized.description || 'التفاصيل غير متاحة حالياً.'; descEl.classList.toggle('qv-data-fallback', !normalized.description); }
+  if (extraEl) extraEl.innerHTML = `<div><strong>حالة التوفر:</strong> ${normalized.stock > 0 ? 'متوفر حالياً' : 'غير متوفر حالياً'}</div><div><strong>الكمية:</strong> ${normalized.stock > 0 ? 'متاحة للطلب' : 'غير متاحة للطلب'}</div>`;
+  if (stockEl) stockEl.textContent = normalized.stock > 0 ? 'متوفر حالياً' : 'غير متوفر حالياً';
+  if (priceEl) priceEl.textContent = `${(hasDiscount ? normalized.sale_price : normalized.price).toLocaleString('ar-EG')} جنيه`;
   if (hasDiscount) {
-    oldPriceEl.textContent = `${Number(product.price).toLocaleString('ar-EG')} جنيه`;
-    oldPriceEl.style.display = 'inline-block';
-    badgeEl.textContent = `خصم ${discountPct}%`;
-    badgeEl.style.display = 'block';
+    if (oldPriceEl) { oldPriceEl.textContent = `${normalized.price.toLocaleString('ar-EG')} جنيه`; oldPriceEl.style.display = 'inline-block'; }
+    if (badgeEl) { badgeEl.textContent = `خصم ${discountPct}%`; badgeEl.style.display = 'block'; }
   } else {
-    oldPriceEl.style.display = 'none';
-    badgeEl.style.display = 'none';
+    if (oldPriceEl) { oldPriceEl.textContent = ''; oldPriceEl.style.display = 'none'; }
+    if (badgeEl) { badgeEl.textContent = ''; badgeEl.style.display = 'none'; }
   }
 
+  const gallery = get('qv-gallery');
+  if (gallery) {
+    gallery.innerHTML = images.length > 1 ? images.map((url, index) => `<button type="button" class="${index === 0 ? 'active' : ''}" aria-label="عرض الصورة ${index + 1}"><img src="${escapeHtml(url)}" alt="" loading="lazy"></button>`).join('') : '';
+    gallery.querySelectorAll('button').forEach((button, index) => button.addEventListener('click', () => setQuickViewImage(images[index], normalized.name || 'صورة المنتج', button)));
+  }
+  const orderButton = get('qv-order-btn');
+  if (orderButton) orderButton.disabled = normalized.stock <= 0;
   modal.classList.add('open');
   document.body.style.overflow = 'hidden';
-}
+};
 
 window.closeQuickView = function() {
   document.getElementById('quickview-modal')?.classList.remove('open');
@@ -744,6 +802,7 @@ async function submitOrder(e) {
     const orderId = orderResult?.order_id || orderResult?.id || orderResult;
     if (!orderId) throw new Error('ORDER_RESPONSE_INVALID');
     const accessToken = orderResult?.access_token || '';
+    saveOrderAccess(orderId, accessToken);
     state.cart = [];
     saveCart();
 
@@ -771,10 +830,11 @@ async function submitOrder(e) {
       const success = document.createElement('div');
       success.id = 'checkout-success';
       success.className = 'success-state';
-      success.innerHTML = `
+        success.innerHTML = `
         <div class="success-icon">✓</div>
         <h3>تم استلام طلبك!</h3>
         <p>شكراً <strong>${escapeHtml(name)}</strong>، رقم طلبك <strong>#${escapeHtml(orderId)}</strong>.<br>الدفع عند الاستلام. ${shippingMessage}</p>
+        ${accessToken ? `<div class="order-access-card"><strong>رمز إدارة الطلب</strong><code dir="ltr">${escapeHtml(accessToken)}</code><button type="button" class="track-action-secondary" onclick="copyOrderAccessToken('${escapeHtml(accessToken)}')">نسخ الرمز</button><small id="order-access-copy-notice">احتفظ بالرمز؛ ستحتاجه مع رقم الطلب لعرض التفاصيل وطلب إلغاء أو تعديل.</small></div>` : '<p class="track-inline-message error">لم يتم إصدار رمز الإدارة؛ تواصل مع المعرض قبل طلب أي تعديل.</p>'}
         <button type="button" onclick="closeCheckout()" style="margin-top:1rem;padding:0.7rem 2rem;border-radius:99px;background:var(--clr-primary);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;border:none">رائع! شكراً</button>`;
       content.appendChild(success);
     }
@@ -818,49 +878,141 @@ function closeTrack() {
   document.body.style.overflow = '';
 }
 
+const TRACK_STATUS_MAP = {
+  'جديد': { icon: '🕐', cls: 'color:#c9a227' },
+  'قيد التجهيز': { icon: '📦', cls: 'color:#1a6b3c' },
+  'تم الشحن': { icon: '🚚', cls: 'color:#2980b9' },
+  'تم التسليم': { icon: '✅', cls: 'color:#27ae60' },
+  'مرفوض': { icon: '❌', cls: 'color:#c0392b' },
+  'ملغي': { icon: '✕', cls: 'color:#c0392b' }
+};
+
+function managedOrderEndpoint(orderId, accessToken) {
+  return `${ADMIN_BACKEND_URL}/api/bosta-track?order_id=${encodeURIComponent(orderId)}&access_token=${encodeURIComponent(accessToken)}`;
+}
+
+function publicTrackCard(order) {
+  const status = TRACK_STATUS_MAP[order.status] || { icon: '📋', cls: '' };
+  const date = new Date(order.created_at).toLocaleDateString('ar-EG');
+  const savedToken = getOrderAccess(order.id);
+  return `<div class="track-managed-card">
+    <div class="track-managed-item"><span>رقم الطلب</span><strong dir="ltr">#${escapeHtml(order.id || '—')}</strong></div>
+    <div class="track-managed-item"><span>تاريخ الطلب</span><strong>${escapeHtml(date)}</strong></div>
+    <div class="track-managed-item"><span>الحالة</span><strong style="${status.cls}">${status.icon} ${escapeHtml(order.status || 'جديد')}</strong></div>
+    <div class="track-managed-item"><span>الإجمالي</span><strong>${Number(order.total || 0).toLocaleString('ar-EG')} جنيه</strong></div>
+    ${order.bosta_tracking_number ? `<div class="track-managed-item"><span>رقم التتبع</span><strong dir="ltr">${escapeHtml(order.bosta_tracking_number)}</strong></div>` : '<p class="track-inline-message">لم يصدر رقم تتبع حتى الآن.</p>'}
+    ${savedToken ? `<button type="button" class="track-action-secondary" style="margin-top:.7rem;width:100%" onclick="loadManagedOrderForOrder('${escapeHtml(order.id)}')">عرض التفاصيل وإدارة الطلب</button>` : '<small class="track-inline-message">لأمان البيانات، التفاصيل الكاملة وإدارة الطلب تحتاج رقم الطلب ورمز الإدارة الموجود بعد الشراء.</small>'}
+  </div>`;
+}
+
 async function trackOrder() {
-  const phone = Dom.trackInput?.value?.trim();
+  const phone = normalizePhoneInput(Dom.trackInput?.value || '');
+  if (Dom.trackInput) Dom.trackInput.value = phone;
   if (!/^01[0125]\d{8}$/.test(phone)) {
     if (Dom.trackResult) Dom.trackResult.textContent = 'اكتب رقم موبايل مصري صحيح.';
     return;
   }
-
   const result = Dom.trackResult;
   result.innerHTML = `<div class="spinner" style="width:28px;height:28px;border-width:3px;margin:1rem auto"></div>`;
-
   try {
     const response = await fetch(`${ADMIN_BACKEND_URL}/api/bosta-track?phone=${encodeURIComponent(phone)}`, { credentials: 'omit' });
     if (!response.ok) throw new Error('TRACK_FAILED');
     const orders = await response.json();
-
-    if (!orders.length) {
-      result.innerHTML = `<p style="color:var(--clr-text-muted);text-align:center;margin-top:1rem">لا توجد طلبات مسجلة بهذا الرقم.</p>`;
+    if (!Array.isArray(orders) || !orders.length) {
+      result.innerHTML = `<p class="track-inline-message">لا توجد طلبات مسجلة بهذا الرقم.</p>`;
       return;
     }
-
-    const statusMap = {
-      'جديد': { icon: '🕐', cls: 'color:#c9a227' },
-      'قيد التجهيز': { icon: '📦', cls: 'color:#1a6b3c' },
-      'تم الشحن': { icon: '🚚', cls: 'color:#2980b9' },
-      'تم التسليم': { icon: '✅', cls: 'color:#27ae60' },
-      'مرفوض': { icon: '❌', cls: 'color:#c0392b' }
-    };
-
-    result.innerHTML = orders.map(o => {
-      const s = statusMap[o.status] || { icon: '📋', cls: '' };
-      const date = new Date(o.created_at).toLocaleDateString('ar-EG');
-      return `
-        <div style="background:var(--clr-surface);border-radius:var(--radius-md);padding:0.9rem 1rem;margin-top:0.7rem;border:1px solid #dde8df">
-          <div style="font-weight:700;margin-bottom:0.2rem">طلب #${escapeHtml(o.id || '—')}</div>
-          <div style="font-size:0.85rem;color:var(--clr-text-muted)">${escapeHtml(date)}</div>
-          <div style="margin-top:0.4rem;font-weight:700;${s.cls}">${s.icon} ${escapeHtml(o.status || 'جديد')}</div>
-          ${o.bosta_tracking_number ? `<div style="margin-top:.35rem;font-size:.85rem">رقم التتبع: <strong>${escapeHtml(o.bosta_tracking_number)}</strong></div>` : ''}
-        </div>`;
-    }).join('');
+    result.innerHTML = orders.map(publicTrackCard).join('');
   } catch (err) {
-    result.innerHTML = `<p style="color:var(--clr-danger);text-align:center;margin-top:1rem">حدث خطأ. حاول تاني.</p>`;
+    console.error('[track order]', err);
+    result.innerHTML = `<p class="track-inline-message error">حصلت مشكلة في تحميل التتبع. حاول تاني.</p>`;
   }
 }
+
+window.loadManagedOrderForOrder = function(orderId) {
+  const token = getOrderAccess(orderId);
+  if (Dom.trackOrderId) Dom.trackOrderId.value = String(orderId || '');
+  if (Dom.trackAccessToken) Dom.trackAccessToken.value = token;
+  return window.loadManagedOrder();
+};
+
+function renderManagedOrder(order) {
+  const result = Dom.trackManagedResult;
+  if (!result) return;
+  const status = TRACK_STATUS_MAP[order.status] || { icon: '📋', cls: '' };
+  const itemRows = (order.items || []).map(item => `<div class="track-managed-item"><span>${escapeHtml(item.name || 'منتج')} × ${Number(item.qty || 1)}</span><strong>${Number(item.price || 0).toLocaleString('ar-EG')} جنيه</strong></div>`).join('');
+  const requests = (order.customer_requests || []).map(request => `<div class="track-managed-item"><span>${request.request_type === 'cancel' ? 'طلب إلغاء' : 'طلب تعديل'}</span><strong>${request.status === 'pending' ? 'قيد المراجعة' : request.status === 'applied' ? 'تم التنفيذ' : 'تم الرفض'}</strong></div>`).join('');
+  const policy = order.policy || {};
+  const editFields = [
+    ['customer_name', 'الاسم', order.customer_name],
+    ['customer_phone', 'رقم الموبايل', order.customer_phone],
+    ['governorate', 'المحافظة', order.governorate],
+    ['area', 'المنطقة', order.area],
+    ['address', 'العنوان التفصيلي', order.address],
+    ['notes', 'ملاحظات التوصيل', order.notes]
+  ].map(([key, label, value]) => `<div class="form-group"><label for="managed-${key}">${label}</label>${key === 'address' || key === 'notes' ? `<textarea id="managed-${key}" name="${key}" rows="2">${escapeHtml(value || '')}</textarea>` : `<input id="managed-${key}" name="${key}" value="${escapeHtml(value || '')}" ${key === 'customer_phone' ? 'inputmode="numeric" dir="ltr"' : ''} />`}</div>`).join('');
+  const cancelBox = policy.can_request_cancel ? `<form class="track-request-box" onsubmit="submitCustomerRequest(event, 'cancel')"><h5>طلب إلغاء الطلب</h5><small>الإلغاء لا يتم بمجرد الضغط؛ يتم تسجيله للمراجعة، وخصوصاً لو الشحنة اتعملت على Bosta.</small><textarea name="reason" required minlength="5" maxlength="1000" placeholder="اكتب سبب الإلغاء — إجباري"></textarea><button type="submit" class="track-action-danger">إرسال طلب الإلغاء</button></form>` : '';
+  const editBox = policy.can_request_edit ? `<form class="track-request-box" onsubmit="submitCustomerRequest(event, 'edit')"><h5>طلب تعديل بيانات التوصيل</h5><small>التعديل متاح لبيانات العميل والتوصيل فقط، وليس المنتجات أو السعر أو الكمية.</small>${editFields}<div class="form-group"><label for="managed-edit-reason">سبب التعديل <span aria-hidden="true">*</span></label><textarea id="managed-edit-reason" name="reason" required minlength="5" maxlength="1000" placeholder="اكتب سبب التعديل"></textarea></div><button type="submit" class="track-action-primary">إرسال طلب التعديل</button></form>` : '';
+  result.innerHTML = `<div class="track-managed-card"><h4>تفاصيل الطلب #${escapeHtml(order.id)}</h4><div class="track-managed-item"><span>الحالة</span><strong style="${status.cls}">${status.icon} ${escapeHtml(order.status || 'جديد')}</strong></div><div class="track-managed-item"><span>العميل</span><strong>${escapeHtml(order.customer_name || '—')}</strong></div><div class="track-managed-item"><span>التواصل</span><strong dir="ltr">${escapeHtml(order.customer_phone || '—')}</strong></div><div class="track-managed-item"><span>العنوان</span><strong>${escapeHtml([order.governorate, order.area, order.address].filter(Boolean).join(' — ') || '—')}</strong></div><div class="track-managed-item"><span>الإجمالي</span><strong>${Number(order.total || 0).toLocaleString('ar-EG')} جنيه</strong></div>${order.bosta_tracking_number ? `<div class="track-managed-item"><span>رقم التتبع</span><strong dir="ltr">${escapeHtml(order.bosta_tracking_number)}</strong></div>` : ''}<div class="track-managed-items">${itemRows || '<span class="track-inline-message">تفاصيل المنتجات غير متاحة حالياً.</span>'}</div>${policy.message ? `<p class="track-inline-message">${escapeHtml(policy.message)}</p>` : ''}${requests ? `<div class="track-managed-items"><h5>طلباتك السابقة</h5>${requests}</div>` : ''}${cancelBox || editBox ? `<div class="track-management-grid">${cancelBox}${editBox}</div>` : ''}</div>`;
+}
+
+window.loadManagedOrder = async function() {
+  const orderId = Number(Dom.trackOrderId?.value || 0);
+  const accessToken = String(Dom.trackAccessToken?.value || '').trim();
+  const result = Dom.trackManagedResult;
+  if (!result) return;
+  if (!Number.isInteger(orderId) || orderId <= 0 || accessToken.length < 16) {
+    result.innerHTML = '<p class="track-inline-message error">اكتب رقم الطلب ورمز الإدارة بشكل صحيح.</p>';
+    return;
+  }
+  const button = Dom.trackManageBtn;
+  if (button) { button.disabled = true; button.textContent = 'جاري تحميل التفاصيل…'; }
+  result.innerHTML = '<div class="spinner" style="width:28px;height:28px;border-width:3px;margin:1rem auto"></div>';
+  try {
+    const response = await fetch(managedOrderEndpoint(orderId, accessToken), { credentials: 'omit' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.id) throw new Error(data.error || 'تعذر التحقق من الطلب');
+    saveOrderAccess(orderId, accessToken);
+    window.currentManagedOrder = data;
+    renderManagedOrder(data);
+  } catch (error) {
+    result.innerHTML = `<p class="track-inline-message error">${escapeHtml(error.message || 'رمز الإدارة غير صحيح أو الطلب غير موجود.')}</p>`;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'عرض التفاصيل وإدارة الطلب'; }
+  }
+};
+
+window.submitCustomerRequest = async function(event, requestType) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const order = window.currentManagedOrder;
+  const accessToken = String(Dom.trackAccessToken?.value || '').trim();
+  if (!order || !accessToken) return;
+  const formData = new FormData(form);
+  const reason = String(formData.get('reason') || '').trim();
+  if (reason.length < 5) {
+    form.querySelector('[name="reason"]')?.focus();
+    return;
+  }
+  const requestedChanges = {};
+  if (requestType === 'edit') ['customer_name', 'customer_phone', 'governorate', 'area', 'address', 'notes'].forEach(key => { const value = String(formData.get(key) || '').trim(); if (value) requestedChanges[key] = key === 'customer_phone' ? normalizePhoneInput(value) : value; });
+  const button = form.querySelector('button[type="submit"]');
+  if (button) { button.disabled = true; button.textContent = 'جاري الإرسال…'; }
+  try {
+    const response = await fetch(`${ADMIN_BACKEND_URL}/api/bosta-track`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit', body: JSON.stringify({ order_id: order.id, access_token: accessToken, request_type: requestType, reason, requested_changes: requestedChanges }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'تعذر إرسال الطلب');
+    await window.loadManagedOrder();
+    const card = Dom.trackManagedResult?.querySelector('.track-managed-card');
+    if (card) card.insertAdjacentHTML('afterbegin', '<p class="track-inline-message success">تم تسجيل طلبك وإرساله للإدارة للمراجعة.</p>');
+  } catch (error) {
+    const current = form.parentElement?.querySelector('.track-inline-message.error');
+    if (current) current.textContent = error.message || 'تعذر إرسال الطلب حالياً.';
+    else form.insertAdjacentHTML('afterend', `<p class="track-inline-message error">${escapeHtml(error.message || 'تعذر إرسال الطلب حالياً.')}</p>`);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = requestType === 'cancel' ? 'إرسال طلب الإلغاء' : 'إرسال طلب التعديل'; }
+  }
+};
 
 /* ─────────────────────────────────────────
    COMPLAINT MODAL
