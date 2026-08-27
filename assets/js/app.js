@@ -266,6 +266,124 @@ async function loadSettings() {
   }
 }
 
+let maintenanceCountdownTimer = null;
+
+function safeMaintenanceLogo(value) {
+  const fallback = 'assets/images/logo.png';
+  try {
+    const url = new URL(String(value || fallback), window.location.href);
+    if (['http:', 'https:'].includes(url.protocol)) return url.href;
+  } catch (_) { /* fallback below */ }
+  return fallback;
+}
+
+function renderMaintenanceScreen(settings = {}) {
+  const enabled = settings.maintenance_mode === true;
+  const existing = document.getElementById('maintenance-root');
+  clearInterval(maintenanceCountdownTimer);
+  maintenanceCountdownTimer = null;
+
+  if (!enabled) {
+    existing?.remove();
+    document.body.classList.remove('maintenance-open');
+    document.documentElement.classList.remove('maintenance-open');
+    document.querySelectorAll('[data-maintenance-was-hidden]').forEach(el => {
+      if (el.dataset.maintenanceWasHidden === 'false') el.hidden = false;
+      delete el.dataset.maintenanceWasHidden;
+    });
+    return;
+  }
+
+  const root = existing || document.createElement('main');
+  root.id = 'maintenance-root';
+  root.className = 'maintenance-state';
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  if (!existing) {
+    root.innerHTML = `
+      <div class="maintenance-glow maintenance-glow-one" aria-hidden="true"></div>
+      <div class="maintenance-glow maintenance-glow-two" aria-hidden="true"></div>
+      <section class="maintenance-card" aria-label="وضع الصيانة">
+        <div class="maintenance-brand">
+          <span class="maintenance-logo-wrap"><img data-maintenance-logo alt="لوجو المتجر"></span>
+          <span class="maintenance-brand-line"></span>
+          <span data-maintenance-site-name>معرض أولاد القاضي للأدوات المنزلية</span>
+        </div>
+        <div class="maintenance-icon" aria-hidden="true"><i class="fa-solid fa-screwdriver-wrench"></i></div>
+        <p class="maintenance-eyebrow">تحديثات بسيطة وتجربة أفضل</p>
+        <h1>راجعِين لكم قريباً</h1>
+        <p class="maintenance-message" data-maintenance-message></p>
+        <div class="maintenance-return-box">
+          <span class="maintenance-return-label">موعد العودة المتوقع</span>
+          <strong data-maintenance-end-label>قريباً</strong>
+        </div>
+        <div class="maintenance-countdown" data-maintenance-countdown aria-label="الوقت المتبقي">
+          <div class="maintenance-time-unit"><strong data-maintenance-days>00</strong><span>يوم</span></div>
+          <div class="maintenance-time-unit"><strong data-maintenance-hours>00</strong><span>ساعة</span></div>
+          <div class="maintenance-time-unit"><strong data-maintenance-minutes>00</strong><span>دقيقة</span></div>
+          <div class="maintenance-time-unit"><strong data-maintenance-seconds>00</strong><span>ثانية</span></div>
+        </div>
+        <p class="maintenance-footer-note">شكراً لصبركم وثقتكم — هنرجعلكم بكل جديد.</p>
+      </section>`;
+    document.body.appendChild(root);
+  }
+
+  const siteName = settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية';
+  const message = settings.maintenance_message || 'بنجهز لكم تجربة أفضل وعروض جديدة. هنرجع قريباً بكل جديد!';
+  const logo = root.querySelector('[data-maintenance-logo]');
+  const endLabel = root.querySelector('[data-maintenance-end-label]');
+  const messageEl = root.querySelector('[data-maintenance-message]');
+  const siteNameEl = root.querySelector('[data-maintenance-site-name]');
+  if (logo) {
+    logo.src = safeMaintenanceLogo(settings.logo_header);
+    logo.onerror = () => { logo.onerror = null; logo.src = 'assets/images/logo.png'; };
+  }
+  if (messageEl) messageEl.textContent = message;
+  if (siteNameEl) siteNameEl.textContent = siteName;
+
+  const endTime = new Date(settings.maintenance_end_at || '').getTime();
+  const formatEnd = () => {
+    if (!Number.isFinite(endTime)) return 'سنعود قريباً';
+    try {
+      return new Intl.DateTimeFormat('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(endTime));
+    } catch (_) { return new Date(endTime).toLocaleString('ar-EG'); }
+  };
+  if (endLabel) endLabel.textContent = formatEnd();
+
+  document.body.classList.add('maintenance-open');
+  document.documentElement.classList.add('maintenance-open');
+  Array.from(document.body.children).forEach(child => {
+    if (child === root) return;
+    if (!Object.prototype.hasOwnProperty.call(child.dataset, 'maintenanceWasHidden')) {
+      child.dataset.maintenanceWasHidden = child.hidden ? 'true' : 'false';
+      child.hidden = true;
+    }
+  });
+
+  const units = {
+    days: root.querySelector('[data-maintenance-days]'),
+    hours: root.querySelector('[data-maintenance-hours]'),
+    minutes: root.querySelector('[data-maintenance-minutes]'),
+    seconds: root.querySelector('[data-maintenance-seconds]')
+  };
+  const updateCountdown = () => {
+    let remaining = Number.isFinite(endTime) ? Math.max(0, endTime - Date.now()) : 0;
+    const days = Math.floor(remaining / 86400000); remaining %= 86400000;
+    const hours = Math.floor(remaining / 3600000); remaining %= 3600000;
+    const minutes = Math.floor(remaining / 60000); remaining %= 60000;
+    const seconds = Math.floor(remaining / 1000);
+    if (units.days) units.days.textContent = String(days).padStart(2, '0');
+    if (units.hours) units.hours.textContent = String(hours).padStart(2, '0');
+    if (units.minutes) units.minutes.textContent = String(minutes).padStart(2, '0');
+    if (units.seconds) units.seconds.textContent = String(seconds).padStart(2, '0');
+    if (!Number.isFinite(endTime) || endTime <= Date.now()) {
+      root.querySelector('[data-maintenance-countdown]')?.classList.add('is-complete');
+    }
+  };
+  updateCountdown();
+  maintenanceCountdownTimer = setInterval(updateCountdown, 1000);
+}
+
 function applySiteSettings(settings) {
   const siteName = settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية';
   const address = settings.address || 'شارع الإصلاح الزراعي، بجوار عمر أفقندى، أمام (المان) للعطور';
@@ -294,10 +412,7 @@ function applySiteSettings(settings) {
   setAttr('meta[name="description"]', 'content', settings.seo_description);
   setText('#year', new Date().getFullYear());
   applySectionVisibility(settings.section_visibility);
-  if (settings.maintenance_mode) {
-    const message = settings.maintenance_message || 'الموقع غير متاح حالياً.';
-    document.body.innerHTML = `<main class="maintenance-state"><h1>${escapeHtml(message)}</h1></main>`;
-  }
+  renderMaintenanceScreen(settings);
 }
 
 function applySectionVisibility(visibility = {}) {
