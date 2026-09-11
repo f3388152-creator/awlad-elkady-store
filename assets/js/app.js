@@ -387,18 +387,24 @@ function renderMaintenanceScreen(settings = {}) {
 
 function applySiteSettings(settings) {
   const siteName = settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية';
-  const address = settings.address || 'شارع الإصلاح الزراعي، بجوار عمر أفقندى، أمام (المان) للعطور';
-  const phone = String(settings.footer_phone || settings.phone || '01118060702');
-  const whatsapp = String(settings.whatsapp_number || phone).replace(/[^0-9]/g, '').replace(/^0/, '20');
+  const address = String(settings.address || '').trim();
+  const phone = String(settings.footer_phone || settings.phone || '').trim();
+  const whatsapp = String(settings.whatsapp_number || '').replace(/[^0-9]/g, '').replace(/^0/, '20');
   const setText = (selector, value) => document.querySelectorAll(selector).forEach(el => { el.textContent = String(value ?? ''); });
   const setAttr = (selector, attr, value) => document.querySelectorAll(selector).forEach(el => { if (value) el.setAttribute(attr, String(value)); });
+  const toggle = (selector, visible) => document.querySelectorAll(selector).forEach(el => { el.hidden = !visible; });
 
   document.title = settings.page_title || `${siteName} | الأدوات المنزلية`;
   setText('.site-brand-name, .footer-brand-name, #site-contact-name', siteName);
   setText('#site-address, .footer-address, .site-address-footer', address);
   setText('#site-phone-link', phone);
-  setAttr('#site-phone-link, a[href^="tel:"], .footer-contact-item[href^="tel:"], .social-link[href^="tel:"]', 'href', `tel:${phone}`);
-  setAttr('#site-whatsapp-link, a[href*="wa.me"], .footer-contact-item[href*="wa.me"], .social-link[href*="wa.me"], #whatsapp-float', 'href', `https://wa.me/${whatsapp}`);
+  toggle('#site-address, .footer-address, .site-address-footer', Boolean(address));
+  toggle('#site-phone-link, .footer-phone-link', Boolean(phone));
+  toggle('#site-whatsapp-link, .footer-whatsapp-link, .footer-whatsapp-social, #whatsapp-float', Boolean(whatsapp));
+  toggle('#contact-phone-row', Boolean(phone || whatsapp));
+  document.getElementById('contact-separator')?.toggleAttribute('hidden', !(phone && whatsapp));
+  setAttr('#site-phone-link, a[href^="tel:"], .footer-contact-item[href^="tel:"], .social-link[href^="tel:"]', 'href', phone ? `tel:${phone}` : '');
+  setAttr('#site-whatsapp-link, a[href*="wa.me"], .footer-contact-item[href*="wa.me"], .social-link[href*="wa.me"], #whatsapp-float', 'href', whatsapp ? `https://wa.me/${whatsapp}` : '');
   setText('[data-cms="hero-title"]', settings.hero_title || `${siteName}`);
   setText('[data-cms="hero-subtitle"]', settings.hero_subtitle || settings.hero_description || '');
   setText('[data-cms="hero-tagline"]', settings.hero_tagline || '');
