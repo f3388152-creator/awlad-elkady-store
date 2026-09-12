@@ -391,7 +391,10 @@ function applySiteSettings(settings) {
   const phone = String(settings.footer_phone || settings.phone || '').trim();
   const whatsapp = String(settings.whatsapp_number || '').replace(/[^0-9]/g, '').replace(/^0/, '20');
   const setText = (selector, value) => document.querySelectorAll(selector).forEach(el => { el.textContent = String(value ?? ''); });
-  const setAttr = (selector, attr, value) => document.querySelectorAll(selector).forEach(el => { if (value) el.setAttribute(attr, String(value)); });
+  const setAttr = (selector, attr, value) => document.querySelectorAll(selector).forEach(el => {
+    if (value) el.setAttribute(attr, String(value));
+    else el.removeAttribute(attr);
+  });
   const toggle = (selector, visible) => document.querySelectorAll(selector).forEach(el => { el.hidden = !visible; });
 
   document.title = settings.page_title || `${siteName} | الأدوات المنزلية`;
@@ -399,8 +402,8 @@ function applySiteSettings(settings) {
   setText('#site-address, .footer-address, .site-address-footer', address);
   setText('#site-phone-link', phone);
   toggle('#site-address, .footer-address, .site-address-footer', Boolean(address));
-  toggle('#site-phone-link, .footer-phone-link', Boolean(phone));
-  toggle('#site-whatsapp-link, .footer-whatsapp-link, .footer-whatsapp-social, #whatsapp-float', Boolean(whatsapp));
+  toggle('#site-phone-link, .footer-phone-link, .footer-contact-item[href^="tel:"]', Boolean(phone));
+  toggle('#site-whatsapp-link, .footer-whatsapp-link, .footer-whatsapp-social, .footer-contact-item[href*="wa.me"], #whatsapp-float', Boolean(whatsapp));
   toggle('#contact-phone-row', Boolean(phone || whatsapp));
   document.getElementById('contact-separator')?.toggleAttribute('hidden', !(phone && whatsapp));
   setAttr('#site-phone-link, a[href^="tel:"], .footer-contact-item[href^="tel:"], .social-link[href^="tel:"]', 'href', phone ? `tel:${phone}` : '');
