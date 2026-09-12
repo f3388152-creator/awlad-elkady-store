@@ -243,10 +243,19 @@ function initHeroParallax() {
 async function loadSettings() {
   try {
     const results = await Promise.allSettled([
-      Supabase.select(TABLES.site_settings, 'id=eq.1'),
+      Supabase.select(TABLES.site_settings, 'id=eq.1').catch(error => {
+        console.error('[landing settings:site_settings] فشل جلب الإعدادات', error);
+        throw error;
+      }),
       TABLES.faqs ? Supabase.select(TABLES.faqs, 'is_visible=eq.true&order=sort_order.asc,created_at.asc') : Promise.resolve([]),
-      TABLES.socials ? Supabase.select(TABLES.socials, 'is_visible=eq.true&order=sort_order.asc,created_at.asc') : Promise.resolve([])
+      TABLES.socials ? Supabase.select(TABLES.socials, 'order=sort_order.asc,created_at.asc').catch(error => {
+        console.error('[landing settings:socials] فشل جلب روابط التواصل — راجع RLS Policy للقراءة العامة على جدول socials', error);
+        throw error;
+      }) : Promise.resolve([])
     ]);
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') console.error('[landing settings] الطلب رقم', index, 'فشل:', result.reason);
+    });
     const settingsRows = results[0].status === 'fulfilled' ? results[0].value : [];
     const faqRows = results[1].status === 'fulfilled' ? results[1].value : [];
     const socialRows = results[2].status === 'fulfilled' ? results[2].value : [];
@@ -388,16 +397,22 @@ function renderMaintenanceScreen(settings = {}) {
 let storefrontMap = null;
 let storefrontMarker = null;
 function renderStorefrontMap(settings = {}) {
-  const container = document.getElementById('storefront-map');
-  const lat = Number(settings.map_latitude), lng = Number(settings.map_longitude);
-  if (!container || typeof L === 'undefined' || !Number.isFinite(lat) || !Number.isFinite(lng)) { if (container) container.hidden = true; return; }
-  container.hidden = false;
-  if (!storefrontMap) {
-    storefrontMap = L.map(container, { scrollWheelZoom: false }).setView([lat, lng], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(storefrontMap);
-    storefrontMarker = L.marker([lat, lng]).addTo(storefrontMap).bindPopup('معرض أولاد القاضي');
-  } else { storefrontMap.setView([lat, lng], 15); storefrontMarker.setLatLng([lat, lng]); }
-  setTimeout(() => storefrontMap.invalidateSize(), 100);
+  try {
+    const container = document.getElementById('storefront-map');
+    const lat = Number(settings.map_latitude), lng = Number(settings.map_longitude);
+    if (!container) { console.warn('[storefront-map] الحاوية #storefront-map غير موجودة'); return; }
+    if (typeof L === 'undefined') { console.error('[storefront-map] مكتبة Leaflet غير محملة'); container.hidden = true; return; }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { container.hidden = true; console.info('[storefront-map] لا توجد إحداثيات محفوظة بعد'); return; }
+    container.hidden = false;
+    if (!storefrontMap) {
+      storefrontMap = L.map(container, { scrollWheelZoom: false }).setView([lat, lng], 15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(storefrontMap);
+      storefrontMarker = L.marker([lat, lng]).addTo(storefrontMap).bindPopup('معرض أولاد القاضي');
+    } else { storefrontMap.setView([lat, lng], 15); storefrontMarker.setLatLng([lat, lng]); }
+    setTimeout(() => storefrontMap?.invalidateSize(), 500);
+  } catch (error) {
+    console.error('[storefront-map] فشل رسم الخريطة', error);
+  }
 }
 
 function applySiteSettings(settings) {
@@ -450,12 +465,37 @@ function applySectionVisibility(visibility = {}) {
   });
 }
 
+const SOCIAL_ICON_RULES = [
+  { test: /facebook|فيس|فيسبوك/i, icon: 'fa-brands fa-facebook-f' },
+  { test: /instagram|انست|إنست|انستجرام/i, icon: 'fa-brands fa-instagram' },
+  { test: /tiktok|تيك/i, icon: 'fa-brands fa-tiktok' },
+  { test: /youtube|يوتيوب/i, icon: 'fa-brands fa-youtube' },
+  { test: /whatsapp|واتس|wa\.me/i, icon: 'fa-brands fa-whatsapp' },
+  { test: /twitter|x\.com|تويتر/i, icon: 'fa-brands fa-x-twitter' },
+  { test: /telegram|تليجرام|تلجرام/i, icon: 'fa-brands fa-telegram' }
+];
+
+function socialIconClass(item) {
+  const haystack = `${item?.name || ''} ${item?.icon || ''} ${item?.link || ''}`;
+  return SOCIAL_ICON_RULES.find(rule => rule.test(haystack))?.icon || (String(item?.icon || '').trim() || 'fa-solid fa-link');
+}
+
 function renderSocials(socials = []) {
   const target = document.getElementById('footer-socials');
-  if (!target) return;
+  if (!target) { console.warn('[storefront-socials] الحاوية #footer-socials غير موجودة'); return; }
   const allowed = /^(https?:|tel:|mailto:)/i;
-  const list = Array.isArray(socials) ? socials.filter(item => item && allowed.test(String(item.link || '')) && !String(item.link).includes('#')) : [];
-  target.innerHTML = list.map(item => `<a class="social-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.name || 'تواصل')}"><span>${escapeHtml(item.name || 'تواصل')}</span></a>`).join('');
+  const rows = Array.isArray(socials) ? socials : [];
+  const list = rows.filter(item => {
+    const link = String(item?.link || '').trim();
+    return item && item.is_visible !== false && allowed.test(link) && link !== '#' && !link.includes('#');
+  });
+  console.info(`[storefront-socials] عدد الروابط المستلمة: ${rows.length} — عدد الروابط الظاهرة: ${list.length}`);
+  target.innerHTML = list.map(item => {
+    const link = String(item.link).trim();
+    const label = String(item.name || 'تواصل').trim();
+    const isExternal = /^https?:/i.test(link);
+    return `<a class="social-link" href="${escapeHtml(link)}"${isExternal ? ' target="_blank" rel="noopener noreferrer"' : ''} aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><i class="${escapeHtml(socialIconClass(item), 80)}" aria-hidden="true"></i><span class="sr-only">${escapeHtml(label)}</span></a>`;
+  }).join('');
 }
 
 function renderTrustCards(cards = []) {
@@ -1514,4 +1554,8 @@ function initRealtimeSync() {
   }, 30000);
 }
 
+  // إجبار Leaflet على إعادة حساب الأبعاد بعد اكتمال رسم الفوتر
+  window.addEventListener('load', () => {
+    if (storefrontMap) setTimeout(() => storefrontMap.invalidateSize(), 500);
+  });
 });
