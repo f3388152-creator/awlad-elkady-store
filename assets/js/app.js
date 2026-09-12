@@ -385,6 +385,21 @@ function renderMaintenanceScreen(settings = {}) {
   maintenanceCountdownTimer = setInterval(updateCountdown, 1000);
 }
 
+let storefrontMap = null;
+let storefrontMarker = null;
+function renderStorefrontMap(settings = {}) {
+  const container = document.getElementById('storefront-map');
+  const lat = Number(settings.map_latitude), lng = Number(settings.map_longitude);
+  if (!container || typeof L === 'undefined' || !Number.isFinite(lat) || !Number.isFinite(lng)) { if (container) container.hidden = true; return; }
+  container.hidden = false;
+  if (!storefrontMap) {
+    storefrontMap = L.map(container, { scrollWheelZoom: false }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(storefrontMap);
+    storefrontMarker = L.marker([lat, lng]).addTo(storefrontMap).bindPopup('معرض أولاد القاضي');
+  } else { storefrontMap.setView([lat, lng], 15); storefrontMarker.setLatLng([lat, lng]); }
+  setTimeout(() => storefrontMap.invalidateSize(), 100);
+}
+
 function applySiteSettings(settings) {
   const siteName = settings.site_name || 'معرض أولاد القاضي للأدوات المنزلية';
   const address = String(settings.address || '').trim();
@@ -402,7 +417,8 @@ function applySiteSettings(settings) {
   setText('#site-address, .footer-address, .site-address-footer', address);
   setText('#site-phone-link', phone);
   toggle('#site-address, .footer-address, .site-address-footer', Boolean(address));
-  toggle('#site-phone-link, .footer-phone-link, .footer-contact-item[href^="tel:"]', Boolean(phone));
+  toggle('#site-phone-link, .footer-phone-link, .footer-contact-item[href^="tel:"]', Boolean(phone) && settings.footer_phone_visible !== false);
+  toggle('#site-whatsapp-link, .footer-whatsapp-link, .footer-contact-item[href*="wa.me"]', Boolean(whatsapp) && settings.whatsapp_visible !== false);
   toggle('#site-whatsapp-link, .footer-whatsapp-link, .footer-whatsapp-social, .footer-contact-item[href*="wa.me"], #whatsapp-float', Boolean(whatsapp));
   toggle('#contact-phone-row', Boolean(phone || whatsapp));
   document.getElementById('contact-separator')?.toggleAttribute('hidden', !(phone && whatsapp));
@@ -423,6 +439,7 @@ function applySiteSettings(settings) {
   setText('#year', new Date().getFullYear());
   applySectionVisibility(settings.section_visibility);
   renderMaintenanceScreen(settings);
+  renderStorefrontMap(settings);
 }
 
 function applySectionVisibility(visibility = {}) {
